@@ -95,7 +95,7 @@ Notes:
 
 ## Local installation
 
-### Option A: Docker Compose
+### Option A: Docker Compose on Linux or macOS
 
 From the repository root:
 
@@ -116,7 +116,43 @@ cd protected-file-analyzer
 ./scripts/pfactl.sh stop
 ```
 
-### Option B: direct Compose commands
+### Option B: Docker Compose on Windows (PowerShell + Docker Desktop)
+
+Recommended host setup:
+
+- Windows 11 or recent Windows 10
+- Docker Desktop with the WSL 2 backend enabled
+- PowerShell
+- The repository checked out on a local drive that Docker Desktop can access
+
+From the repository root in PowerShell:
+
+```powershell
+cd protected-file-analyzer
+Copy-Item .env.example .env
+New-Item -ItemType Directory -Force -Path .\runtime\jobs | Out-Null
+New-Item -ItemType Directory -Force -Path .\runtime\wordlists | Out-Null
+docker compose up -d --build
+```
+
+Open the UI at:
+
+- `http://127.0.0.1:8088`
+
+To stop it later:
+
+```powershell
+cd protected-file-analyzer
+docker compose down
+```
+
+Notes for Windows operators:
+
+- Docker Desktop may create bind-mount source directories automatically, but pre-creating `runtime/jobs` and `runtime/wordlists` avoids first-run surprises.
+- If you plan to keep local changes in `.env`, copy from `.env.example` once and edit only the local `.env` file.
+- If Docker Desktop is configured with the WSL 2 backend, keeping the repository on a normal local drive is usually the simplest path for browser access and file management.
+
+### Option C: direct Compose commands on Linux or macOS
 
 If you prefer raw Compose commands:
 
