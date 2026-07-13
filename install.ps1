@@ -31,6 +31,7 @@ try {
   $updatedEnv = $updatedEnv -replace 'PFA_RUNTIME_GID=.*', ('PFA_RUNTIME_GID=' + $runtimeGid)
   $updatedEnv | Set-Content $envPath
   Push-Location $InstallDir
+  docker compose pull
   docker compose up -d
   docker compose ps
   Pop-Location

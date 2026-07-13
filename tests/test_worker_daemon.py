@@ -22,7 +22,6 @@ def test_ensure_runtime_writable_raises_clear_error_for_read_only_dir(app_env, m
     monkeypatch.setenv('PFA_WORDLISTS_DIR', str(wordlists))
 
     from protected_file_analyzer.config import get_settings as fresh_settings
-    fresh_settings.cache_clear()
     settings = fresh_settings()
     expected_data_root = settings.data_root
 

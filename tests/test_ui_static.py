@@ -5,21 +5,26 @@ from fastapi.testclient import TestClient
 from protected_file_analyzer.app import create_app
 
 
-def test_index_exposes_wordlist_options_and_flight_progress_ui(app_env):
+def test_index_exposes_single_analyze_action_generic_progress_and_cancel(app_env):
     app = create_app()
     with TestClient(app) as client:
         response = client.get("/")
 
     assert response.status_code == 200
     html = response.text
-    assert 'value="pin4"' in html
-    assert 'value="israeli_id"' in html
-    assert 'value="mounted"' in html
-    assert 'קודם PIN בן 4 ספרות' in html
-    assert 'id="flight-progress"' in html
-    assert 'id="flight-path"' in html
-    assert 'id="flight-plane"' in html
-    assert 'id="stage-progress"' in html
+    assert 'Analyze file' in html
+    assert 'Preparing' in html
+    assert 'Recovering access' in html
+    assert 'Decrypting' in html
+    assert 'Static analysis' in html
+    assert 'Completed' in html
+    assert 'name="custom_wordlist"' in html
+    assert 'id="cancel-job"' in html
+    assert 'value="pin4"' not in html
+    assert 'value="israeli_id"' not in html
+    assert 'value="rockyou"' not in html
+    assert 'value="mounted"' not in html
+    assert 'name="wordlist_mode"' not in html
 
 
 def test_index_uses_versioned_static_assets(app_env):
@@ -33,15 +38,18 @@ def test_index_uses_versioned_static_assets(app_env):
     assert '/app.js?v=' in html
 
 
-def test_static_assets_render_summary_error_hooks():
+def test_static_assets_render_safe_tool_cards_without_unsafe_tool_html():
     static_dir = Path(__file__).resolve().parents[1] / 'src' / 'protected_file_analyzer' / 'static'
     script = (static_dir / 'app.js').read_text(encoding='utf-8')
     styles = (static_dir / 'styles.css').read_text(encoding='utf-8')
 
-    assert 'summary-card' in script
-    assert 'summary-label' in script
-    assert 'summary-value' in script
-    assert 'לא בוצעה סריקה סטטית' in script
-    assert '.badge.error' in styles
-    assert '.status-message.error' in styles
+    assert 'tool-card' in script
+    assert 'Native Output' in script
+    assert 'Parsed Findings' in script
+    assert 'Download raw output' in script
+    assert 'innerHTML = (report.tool_cards' not in script
+    assert 'textContent = JSON.stringify(report, null, 2)' in script
+    assert '.tool-card' in styles
+    assert '.tab-list' in styles
+    assert '.tool-output-note' in styles
     assert 'overflow-wrap: anywhere' in styles or 'word-break: break-word' in styles

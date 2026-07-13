@@ -1,6 +1,6 @@
 # Protected File Analyzer
 
-Protected File Analyzer is a Docker-first web application for **authorized** analysis of password-protected files. It accepts a protected file, extracts a crackable hash with John the Ripper helper tools (`*2john`), attempts password recovery with an operator-selected wordlist mode, decrypts the file when recovery succeeds, and runs static analysis on the decrypted output.
+Protected File Analyzer is a Docker-first web application for **authorized** analysis of password-protected files. It accepts a protected file, extracts a crackable hash with John the Ripper helper tools (`*2john`), applies a bounded internal recovery policy, decrypts the file when recovery succeeds, and runs static analysis on the decrypted output.
 
 ## What problem this project solves
 
@@ -8,7 +8,7 @@ Teams that are authorized to inspect protected files often need a repeatable wor
 
 - identifying supported encrypted formats
 - extracting a crackable hash with the right helper tool
-- attempting controlled password recovery with explicit operator input
+- attempting controlled password recovery within explicit time and candidate limits
 - decrypting the recovered file safely
 - running static analysis on the decrypted artifact
 
@@ -19,11 +19,10 @@ This project packages that workflow behind a small web UI and API while keeping 
 - Browser UI plus JSON API
 - Separate web and worker services
 - Verified John the Ripper + `*2john` extractor usage
-- Custom, mounted, and built-in wordlist modes
+- Uploaded custom, mounted organization, 4-digit PIN, optional rockyou, and optional scoped-organization recovery providers
 - Decryption and artifact download after successful recovery
 - Static analysis with YARA, oletools, PDFiD, ExifTool, and optional ClamAV
 - Password redaction in status and report outputs
-- Explicit POST-only password reveal endpoint with `Cache-Control: no-store`
 
 ## Supported protected-file types
 
@@ -37,7 +36,7 @@ This project packages that workflow behind a small web UI and API while keeping 
 
 ## General architecture
 
-- **Web service**: FastAPI UI and API for uploads, job status, reports, artifacts, and explicit password reveal.
+- **Web service**: FastAPI UI and API for uploads, job status, reports, artifacts, cancellation, and safe raw-output downloads.
 - **Non-root worker**: a separate worker process polls shared job state and performs extraction, cracking, decryption, and static analysis.
 - **John / `*2john`**: the worker verifies and uses John the Ripper plus format-specific extractors such as `zip2john`, `7z2john`, `pdf2john`, and `office2john`.
 - **Static analysis**: after successful decryption, the worker analyzes the output with enabled scanners.
@@ -97,7 +96,17 @@ Notes:
 
 ### Option A: Docker Compose on Linux or macOS
 
-From the repository root:
+Normal deployment uses prebuilt versioned images:
+
+```bash
+cd protected-file-analyzer
+cp .env.example .env
+./scripts/ensure-runtime-dirs.sh
+docker compose pull
+docker compose up -d
+```
+
+Or equivalently:
 
 ```bash
 cd protected-file-analyzer
@@ -132,7 +141,8 @@ cd protected-file-analyzer
 Copy-Item .env.example .env
 New-Item -ItemType Directory -Force -Path .\runtime\jobs | Out-Null
 New-Item -ItemType Directory -Force -Path .\runtime\wordlists | Out-Null
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Open the UI at:
@@ -152,18 +162,19 @@ Notes for Windows operators:
 - If you plan to keep local changes in `.env`, copy from `.env.example` once and edit only the local `.env` file.
 - If Docker Desktop is configured with the WSL 2 backend, keeping the repository on a normal local drive is usually the simplest path for browser access and file management.
 
-### Option C: direct Compose commands on Linux or macOS
+### Option C: clean local build validation
 
-If you prefer raw Compose commands:
+For CI, release validation, or local verification of a clean build:
 
 ```bash
 cd protected-file-analyzer
 cp .env.example .env
 ./scripts/ensure-runtime-dirs.sh
-docker compose up -d --build
+docker compose -f compose.yaml -f compose.build.yaml build --no-cache
+docker compose -f compose.yaml -f compose.build.yaml up -d
 ```
 
-> If you bypass the setup/start flow and run `docker compose up` directly from a fresh tree, Docker may create runtime bind-mount directories with ownership or permissions that prevent the worker from writing. Use `./scripts/pfactl.sh start` or `./scripts/ensure-runtime-dirs.sh` first.
+> If you bypass the setup/start flow and run Compose directly from a fresh tree, Docker may create runtime bind-mount directories with ownership or permissions that prevent the worker from writing. Use `./scripts/pfactl.sh start` or `./scripts/ensure-runtime-dirs.sh` first.
 
 ## Running without Docker
 
@@ -209,6 +220,8 @@ All supported configuration lives in `.env.example`.
 
 ### Optional / advanced settings
 
+- `PFA_WEB_IMAGE`
+- `PFA_WORKER_IMAGE`
 - `PFA_KALI_MCP_URL`
 - `PFA_KALI_MCP_WORKER_PYTHON`
 - `PFA_KALI_MCP_WORKER_PATH`
@@ -221,8 +234,13 @@ All supported configuration lives in `.env.example`.
 - `PFA_WORKER_POLL_INTERVAL_SECONDS`
 - `PFA_CLEANUP_INTERVAL_SECONDS`
 - `PFA_JOB_TTL_MINUTES`
-- `PFA_REVEAL_DISPLAY_SECONDS`
 - `PFA_CLAMAV_ENABLED`
+- `PFA_WEB_CPU_LIMIT`
+- `PFA_WEB_MEMORY_LIMIT`
+- `PFA_WEB_PIDS_LIMIT`
+- `PFA_WORKER_CPU_LIMIT`
+- `PFA_WORKER_MEMORY_LIMIT`
+- `PFA_WORKER_PIDS_LIMIT`
 
 ## Example `.env`
 
@@ -262,7 +280,6 @@ printf '%s\n' '<TEST_PASSWORD>' 'not-it' > ./tmp/wordlist.txt
 
 curl -X POST http://127.0.0.1:8088/api/jobs \
   -F 'authorization_confirmed=true' \
-  -F 'wordlist_mode=custom' \
   -F 'protected_file=@./sample.pdf;type=application/pdf' \
   -F 'custom_wordlist=@./tmp/wordlist.txt;type=text/plain'
 ```
@@ -278,26 +295,26 @@ Fetch outputs:
 ```bash
 curl http://127.0.0.1:8088/api/jobs/<JOB_ID>/report
 curl -OJ http://127.0.0.1:8088/api/jobs/<JOB_ID>/artifact
-curl -X POST http://127.0.0.1:8088/api/jobs/<JOB_ID>/reveal-password
 curl -X DELETE http://127.0.0.1:8088/api/jobs/<JOB_ID>
 ```
 
-## Custom wordlist usage
+## Recovery providers and custom wordlist usage
 
-Supported wordlist modes include:
+The analyst-facing workflow is always **Analyze file**. The service chooses the fixed recovery policy internally and does not disclose which strategy matched.
 
-- `custom`
-- `mounted`
-- `rockyou`
-- `pin4`
-- `israeli_id`
+The built-in provider order is:
 
-Wordlists can be supplied by:
+1. uploaded custom wordlist (when supplied)
+2. mounted organization wordlists under `./runtime/wordlists/`
+3. internal 4-digit PIN candidate sweep
+4. internal Israeli-ID-pattern candidate sweep
+5. optional cached `rockyou.txt` when available
 
-1. uploading a per-job custom wordlist
-2. placing mounted wordlists under `./runtime/wordlists/`
+Notes:
 
-If `rockyou.txt` is not present in the deployment, the API returns a clear error instead of silently pretending it is available.
+- The application starts even when `rockyou.txt` is unavailable.
+- Capabilities and health report whether `rockyou` is present.
+- The UI does not expose internal recovery strategy names.
 
 ## Running tests
 
@@ -338,11 +355,11 @@ PFA_LIVE_BASE_URL=http://127.0.0.1:8088 python -m pytest -q tests/test_live_e2e.
 
 - The worker runs as **UID 10001**.
 - The default local worker has **no exposed ports** and uses `network_mode: none`.
-- Compose applies `cap_drop: ALL`, `no-new-privileges:true`, a read-only root filesystem, and `tmpfs` for `/tmp`.
+- Compose applies `cap_drop: ALL`, `no-new-privileges:true`, a read-only root filesystem, `tmpfs` for `/tmp`, and explicit CPU / memory / PID limits.
 - Every John invocation gets an **isolated per-job `HOME`** with a private `.john` directory.
 - Successful crack output is **redacted** before being persisted.
 - Job status and report JSON do **not** expose recovered passwords.
-- The reveal endpoint is **POST-only** and returns `Cache-Control: no-store`.
+- Recovered passwords are used only for in-memory decryption flow and are removed from secret files, pot files, sessions, and temporary work directories during cleanup.
 
 See also: `SECURITY.md`
 
@@ -363,9 +380,10 @@ Use this project only for files, systems, and environments you own or are explic
 - You likely started Compose directly from a fresh tree without preparing runtime directories
 - Stop the stack, run `./scripts/ensure-runtime-dirs.sh`, then start again
 
-### `rockyou` mode returns unavailable
+### `rockyou` is unavailable
 
 - This is expected unless you mount or provide a valid `rockyou.txt`
+- The application still starts and continues with the remaining recovery providers
 
 ### Live E2E test is skipped
 

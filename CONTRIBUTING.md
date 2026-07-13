@@ -29,8 +29,7 @@ curl http://127.0.0.1:8088/api/health
 
 - Do not change application behavior, cracking logic, or container security controls without tests and a clear reason.
 - Keep password material out of status JSON, reports, logs, environment variables, image metadata, and command-line arguments.
-- Preserve the explicit POST-only reveal flow and its `no-store` response headers.
-- Preserve the non-root worker model and per-job John isolation.
+- Preserve the non-root worker model, bounded recovery policy, and per-job John isolation.
 - Keep repository paths portable; avoid machine-specific absolute paths.
 
 ## Secrets and private data

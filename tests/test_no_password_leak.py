@@ -25,8 +25,6 @@ class FakeRunner:
             Path(values['--output']).write_text('fake-hash', encoding='utf-8')
             return WorkerResult(ok=True, payload={"ok": True})
         if command == 'crack-mask':
-            return WorkerResult(ok=True, payload={"ok": True, "found": False, "timed_out": False})
-        if command == 'crack':
             Path(values['--pot']).write_text('fake-pot', encoding='utf-8')
             return WorkerResult(ok=True, payload={"ok": True, "found": True})
         if command == 'recover-secret':
@@ -35,32 +33,33 @@ class FakeRunner:
         if command == 'decrypt':
             secret = Path(values['--secret'])
             assert secret.read_text(encoding='utf-8') == 'test-password-1234'
-            secret.unlink()
             target = Path(values['--output-dir']) / 'decrypted.pdf'
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b'decrypted')
             return WorkerResult(ok=True, payload={"ok": True, "scan_target": str(target)})
         if command == 'scan':
             report = Path(values['--report'])
-            report.write_text(json.dumps({"summary": {"verdict": "clean"}}), encoding='utf-8')
+            report.write_text(json.dumps({"summary": {"verdict": "clean"}, "tool_cards": []}), encoding='utf-8')
             Path(values['--artifact']).write_bytes(b'artifact')
             return WorkerResult(ok=True, payload={"ok": True, "artifact_name": 'artifact.pdf', "summary": {"verdict": "clean"}})
         raise AssertionError(command)
 
 
-def test_password_never_appears_in_status_or_report(app_env):
+def test_password_never_appears_in_status_report_or_workdir(app_env):
     settings = get_settings()
     store = JobStore(settings)
     runner = FakeRunner()
     job_id = uuid.uuid4().hex
-    job_dir = store.create(job_id, {"original_name": "sample.zip", "wordlist_mode": "rockyou"})
+    job_dir = store.create(job_id, {"original_name": "sample.zip", "format": "zip", "custom_wordlist_supplied": False})
     source = job_dir / 'input' / 'protected.zip'
     source.write_bytes(b'protected')
-    store.update(job_id, source_relative='input/protected.zip', source_size=source.stat().st_size, wordlist_path=str(settings.default_rockyou_path))
+    store.update(job_id, source_relative='input/protected.zip', source_size=source.stat().st_size)
 
     asyncio.run(run_pipeline(job_id, settings=settings, store=store, runner=runner))
 
     state_text = (job_dir / 'status.json').read_text(encoding='utf-8')
     report_text = (job_dir / 'report.json').read_text(encoding='utf-8')
+    work_listing = '\n'.join(sorted(path.name for path in (job_dir / 'work').glob('*')))
     assert 'test-password-1234' not in state_text
     assert 'test-password-1234' not in report_text
+    assert 'test-password-1234' not in work_listing

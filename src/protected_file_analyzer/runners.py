@@ -9,6 +9,7 @@ from typing import Any, Protocol
 import httpx
 
 from .config import Settings, get_settings
+from .recovery import describe_wordlist_providers
 from .tool_probe import verify_local_toolchain
 
 
@@ -74,11 +75,7 @@ class LocalContainerRunner:
             "extractors": verified["extractors"],
             "command_paths": verified["command_paths"],
             "scanners": verified["scanners"],
-            "wordlists": {
-                "rockyou": self.settings.default_rockyou_path.exists(),
-                "mounted": [path.name for path in self.settings.mounted_wordlists()],
-                "custom_upload": True,
-            },
+            "wordlists": describe_wordlist_providers(self.settings),
         }
 
 
@@ -124,11 +121,7 @@ class KaliMcpRunner:
             "formats": ["zip", "7z", "pdf", "doc", "docx", "docm", "xls", "xlsx", "xlsm", "ppt", "pptx", "pptm"],
             "scanners": {},
             "extractors": {},
-            "wordlists": {
-                "rockyou": self.settings.default_rockyou_path.exists(),
-                "mounted": [path.name for path in self.settings.mounted_wordlists()],
-                "custom_upload": True,
-            },
+            "wordlists": describe_wordlist_providers(self.settings),
         }
 
     @staticmethod

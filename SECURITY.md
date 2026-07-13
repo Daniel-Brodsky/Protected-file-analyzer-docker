@@ -41,7 +41,7 @@ Use minimal synthetic fixtures or sanitized reproductions instead.
 - Compose applies `cap_drop: ALL`, `no-new-privileges:true`, and a read-only root filesystem.
 - John runs with an isolated **per-job `HOME`** and restrictive temporary permissions.
 - Job status and report outputs are designed to avoid password disclosure.
-- Password reveal is **POST-only** and returned with `Cache-Control: no-store`.
+- The UI does not expose recovered passwords; the worker keeps them only long enough to decrypt and then deletes them in cleanup.
 
 ## Known limitations
 

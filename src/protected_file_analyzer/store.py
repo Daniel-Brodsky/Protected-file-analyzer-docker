@@ -22,26 +22,28 @@ class JobStore:
     def state_path(self, job_id: str) -> Path:
         return self.job_dir(job_id) / "status.json"
 
+    def cancel_path(self, job_id: str) -> Path:
+        return self.job_dir(job_id) / ".cancel"
+
     def create(self, job_id: str, payload: dict[str, Any]) -> Path:
         job_dir = self.job_dir(job_id)
-        (job_dir / "input").mkdir(parents=True, exist_ok=False)
-        (job_dir / "work").mkdir()
-        (job_dir / "output").mkdir()
-        (job_dir / "logs").mkdir()
+        self._mkdir_private(job_dir)
+        self._mkdir_private(job_dir / "input")
+        self._mkdir_private(job_dir / "work")
+        self._mkdir_private(job_dir / "output")
+        self._mkdir_private(job_dir / "logs")
         now = time.time()
         state = {
             "job_id": job_id,
             "status": "pending",
             "atomic_state": "pending",
-            "stage": "pending",
+            "stage": "preparing",
             "progress": 0,
-            "message": "Job created",
+            "message": "Preparing",
             "created_at": now,
             "updated_at": now,
             "artifact_ready": False,
             "report_ready": False,
-            "password_available": False,
-            "reveal_count": 0,
             **payload,
         }
         self._write_atomic(self.state_path(job_id), state)
@@ -60,9 +62,32 @@ class JobStore:
         state.update(changes)
         state["updated_at"] = time.time()
         self._write_atomic(self.state_path(job_id), state)
-        if state.get("atomic_state") in {"completed", "failed"}:
+        if state.get("atomic_state") in {"completed", "failed", "cancelled"}:
             self.release_claim(job_id)
         return state
+
+    def request_cancel(self, job_id: str) -> dict[str, Any]:
+        state = self.get(job_id)
+        if state.get("atomic_state") in {"completed", "failed", "cancelled"}:
+            return state
+        cancel_path = self.cancel_path(job_id)
+        cancel_path.write_text("cancel\n", encoding="utf-8")
+        cancel_path.chmod(0o600)
+        if state.get("atomic_state") == "pending":
+            self._cleanup_runtime_payload(job_id)
+            self.clear_cancel_request(job_id)
+            return self.update(job_id, status="cancelled", atomic_state="cancelled", stage="completed", progress=100, message="Cancelled")
+        return self.update(job_id, status="cancelling", atomic_state="cancelling", message="Cancelling")
+
+    def is_cancel_requested(self, job_id: str) -> bool:
+        try:
+            state = self.get(job_id)
+        except FileNotFoundError:
+            return False
+        return self.cancel_path(job_id).exists() or state.get("atomic_state") == "cancelling"
+
+    def clear_cancel_request(self, job_id: str) -> None:
+        self.cancel_path(job_id).unlink(missing_ok=True)
 
     def delete(self, job_id: str) -> None:
         job_dir = self.job_dir(job_id)
@@ -102,21 +127,40 @@ class JobStore:
                 state = self.get(job_id)
                 if state.get("atomic_state") != "pending":
                     continue
-                return self.update(job_id, status="running", atomic_state="running", stage="extract_hash", message="Worker claimed job")
+                if self.cancel_path(job_id).exists():
+                    self.clear_cancel_request(job_id)
+                    self._cleanup_runtime_payload(job_id)
+                    self.update(job_id, status="cancelled", atomic_state="cancelled", stage="completed", progress=100, message="Cancelled")
+                    continue
+                return self.update(job_id, status="running", atomic_state="running", stage="preparing", message="Preparing")
             finally:
                 current = self.get(job_id) if self.state_path(job_id).exists() else None
-                if not current or current.get("atomic_state") != "running":
+                if not current or current.get("atomic_state") not in {"running", "cancelling"}:
                     claim.unlink(missing_ok=True)
         return None
 
     def release_claim(self, job_id: str) -> None:
         (self.job_dir(job_id) / ".claim").unlink(missing_ok=True)
 
+    def _cleanup_runtime_payload(self, job_id: str) -> None:
+        job_dir = self.job_dir(job_id)
+        for name in ("input", "work", "output", "logs"):
+            shutil.rmtree(job_dir / name, ignore_errors=True)
+        for name in ("artifact.bin", "report.json"):
+            (job_dir / name).unlink(missing_ok=True)
+
+    @staticmethod
+    def _mkdir_private(path: Path) -> None:
+        path.mkdir(parents=True, exist_ok=False)
+        path.chmod(0o700)
+
     @staticmethod
     def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
         temp = path.with_suffix(".tmp")
         temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.chmod(0o600)
         temp.replace(path)
+        path.chmod(0o600)
 
 
 def validate_dirname(name: str) -> bool:

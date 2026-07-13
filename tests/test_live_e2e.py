@@ -15,6 +15,9 @@ from protected_file_analyzer.tool_probe import TEST_PASSWORD, create_probe_fixtu
 BASE_URL = os.getenv('PFA_LIVE_BASE_URL')
 REPO_DIR = Path(os.getenv('PFA_REPO_DIR') or str(Path(__file__).resolve().parents[1]))
 OFFICE_FIXTURE = REPO_DIR / 'tests' / 'fixtures' / 'protected-sample.xlsx'
+COMPOSE_PROJECT = os.getenv('PFA_COMPOSE_PROJECT_NAME') or REPO_DIR.name
+WEB_CONTAINER = f'{COMPOSE_PROJECT}-web-1'
+WORKER_CONTAINER = f'{COMPOSE_PROJECT}-worker-1'
 
 pytestmark = pytest.mark.skipif(not BASE_URL, reason='PFA_LIVE_BASE_URL not set for live end-to-end tests')
 
@@ -26,9 +29,9 @@ def _grep_clean(command: str, needle: str) -> None:
 
 def _assert_no_password_leak(password: str) -> None:
     _grep_clean("docker compose logs --no-color web worker 2>/dev/null || true", password)
-    _grep_clean("docker exec protected-file-analyzer-worker-1 ps -ef 2>/dev/null || true", password)
-    _grep_clean("docker exec protected-file-analyzer-web-1 ps -ef 2>/dev/null || true", password)
-    _grep_clean("docker inspect protected-file-analyzer-web-1 protected-file-analyzer-worker-1 2>/dev/null || true", password)
+    _grep_clean(f"docker exec {WORKER_CONTAINER} ps -ef 2>/dev/null || true", password)
+    _grep_clean(f"docker exec {WEB_CONTAINER} ps -ef 2>/dev/null || true", password)
+    _grep_clean(f"docker inspect {WEB_CONTAINER} {WORKER_CONTAINER} 2>/dev/null || true", password)
 
 
 def _build_supported_7z(path: Path, password: str) -> None:
@@ -56,7 +59,7 @@ def _run_live_job(client: httpx.Client, fixture_path: Path, *, suffix_name: str)
         wordlist_bytes = f"{TEST_PASSWORD}\nnot-it\n".encode('utf-8')
         response = client.post(
             '/api/jobs',
-            data={'wordlist_mode': 'custom', 'authorization_confirmed': 'true'},
+            data={'authorization_confirmed': 'true'},
             files={
                 'protected_file': (suffix_name, protected_handle, 'application/octet-stream'),
                 'custom_wordlist': ('wordlist.txt', wordlist_bytes, 'text/plain'),
@@ -85,11 +88,6 @@ def _run_live_job(client: httpx.Client, fixture_path: Path, *, suffix_name: str)
     artifact = client.get(f'/api/jobs/{job_id}/artifact')
     artifact.raise_for_status()
     assert artifact.content
-
-    reveal = client.post(f'/api/jobs/{job_id}/reveal-password')
-    reveal.raise_for_status()
-    assert reveal.json()['password'] == TEST_PASSWORD
-    assert 'no-store' in reveal.headers.get('cache-control', '')
 
     _assert_no_password_leak(TEST_PASSWORD)
 

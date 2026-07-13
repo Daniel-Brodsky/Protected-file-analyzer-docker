@@ -10,6 +10,19 @@ OFFICE_FIXTURE = Path(__file__).with_name('fixtures') / 'protected-sample.xlsx'
 PASSWORD = 'ProbePass123!'
 
 
+def test_blank_wordlist_candidates_are_skipped_without_invoking_john(tmp_path: Path):
+    hash_file = tmp_path / 'hash.txt'
+    hash_file.write_text('fake-hash\n', encoding='utf-8')
+    pot_file = tmp_path / 'john.pot'
+    workdir = tmp_path / 'work'
+    wordlist = tmp_path / 'blank.txt'
+    wordlist.write_text('\n\n   \n', encoding='utf-8')
+
+    cracked = crack(hash_file, wordlist, pot_file, workdir, timeout=30, max_candidates=100, cancel_path=None, provider_name='custom_upload')
+
+    assert cracked == {"ok": True, "found": False, "timed_out": False, "cancelled": False}
+
+
 def test_office_fixture_extracts_cracks_and_decrypts(tmp_path: Path):
     assert OFFICE_FIXTURE.exists()
 
@@ -28,7 +41,7 @@ def test_office_fixture_extracts_cracks_and_decrypts(tmp_path: Path):
     assert extracted['ok'] is True
     assert '$office$' in hash_file.read_text(encoding='utf-8')
 
-    cracked = crack(hash_file, wordlist, pot_file, workdir, timeout=30)
+    cracked = crack(hash_file, wordlist, pot_file, workdir, timeout=30, max_candidates=100, cancel_path=None, provider_name='custom_upload')
     assert cracked['ok'] is True
     assert cracked['found'] is True
 

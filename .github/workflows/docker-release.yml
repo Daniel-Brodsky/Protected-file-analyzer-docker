@@ -28,7 +28,15 @@ jobs:
           target: web-runtime
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository }}-web:${{ github.ref_name }}
+          tags: ghcr.io/daniel-brodsky/protected-file-analyzer-docker-web:${{ github.ref_name }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: worker-base
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/daniel-brodsky/protected-file-analyzer-docker-worker-base:${{ github.ref_name }}
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -36,7 +44,7 @@ jobs:
           target: worker-runtime
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository }}-worker:${{ github.ref_name }}
+          tags: ghcr.io/daniel-brodsky/protected-file-analyzer-docker-worker:${{ github.ref_name }}
       - name: Build tarball release archive
         run: |
           tar \

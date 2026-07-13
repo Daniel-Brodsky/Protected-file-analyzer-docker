@@ -6,7 +6,7 @@ RUNTIME_ROOT="$ROOT/runtime"
 JOBS_DIR="$RUNTIME_ROOT/jobs"
 WORDLISTS_DIR="$RUNTIME_ROOT/wordlists"
 HOST_UID="$(id -u)"
-HOST_GID="$(id -g)"
+HOST_GID="${PFA_RUNTIME_GID:-$(id -g)}"
 
 mkdir -p "$JOBS_DIR" "$WORDLISTS_DIR"
 chmod 0755 "$RUNTIME_ROOT"

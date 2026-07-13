@@ -7,7 +7,8 @@ cmd="${1:-status}"
 case "$cmd" in
   start)
     ./scripts/ensure-runtime-dirs.sh
-    docker compose up -d --build
+    docker compose pull
+    docker compose up -d
     ;;
   stop) docker compose stop ;;
   restart)

@@ -121,6 +121,179 @@ def clear_john_session(workdir: Path) -> None:
             pass
 
 
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])")
+
+
+def strip_ansi_and_control_sequences(text: str) -> str:
+    text = ANSI_ESCAPE_RE.sub("", text or "")
+    return "".join(char for char in text if char in {"\n", "\r", "\t"} or ord(char) >= 32)
+
+
+def truncate_text_bytes(text: str, limit: int) -> tuple[str, bool]:
+    data = (text or "").encode("utf-8")
+    if len(data) <= limit:
+        return text or "", False
+    return data[:limit].decode("utf-8", errors="ignore"), True
+
+
+def slugify_fragment(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", value or "").strip("-.")
+    return cleaned.lower() or "tool-output"
+
+
+def count_non_empty_lines(path: Path) -> int:
+    count = 0
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for line in handle:
+            if line.strip():
+                count += 1
+    return count
+
+
+def record_wordlist_metadata(*, workdir: Path, provider_name: str, wordlist: Path, skipped_empty: bool = False) -> None:
+    exists = wordlist.exists()
+    stat_result = wordlist.stat() if exists else None
+    payload = {
+        "provider": provider_name,
+        "resolved_container_path": str(wordlist.resolve()),
+        "exists": exists,
+        "regular_file": bool(exists and wordlist.is_file()),
+        "readable": bool(exists and os.access(wordlist, os.R_OK)),
+        "byte_size": int(stat_result.st_size) if stat_result else 0,
+        "non_empty_line_count": count_non_empty_lines(wordlist) if exists else 0,
+        "ownership": {
+            "uid": int(stat_result.st_uid) if stat_result else None,
+            "gid": int(stat_result.st_gid) if stat_result else None,
+        },
+        "mode": oct(stat_result.st_mode & 0o777) if stat_result else None,
+        "flushed_and_closed_before_john": True,
+        "skipped_empty": skipped_empty,
+    }
+    metadata_path = workdir / f"{slugify_fragment(provider_name)}-wordlist-meta.json"
+    metadata_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def terminate_process(process: subprocess.Popen[str]) -> tuple[str, str]:
+    try:
+        process.terminate()
+        return process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return process.communicate(timeout=5)
+
+
+def run_cancellable(
+    args: list[str],
+    *,
+    timeout: int,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    cancel_path: Path | None = None,
+) -> tuple[subprocess.CompletedProcess[str] | None, bool, bool]:
+    process = subprocess.Popen(
+        args,
+        cwd=cwd,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    deadline = time.monotonic() + timeout
+    while True:
+        if cancel_path is not None and cancel_path.exists():
+            stdout, stderr = terminate_process(process)
+            return subprocess.CompletedProcess(args, process.returncode or 130, stdout, stderr), False, True
+        if process.poll() is not None:
+            stdout, stderr = process.communicate(timeout=5)
+            return subprocess.CompletedProcess(args, process.returncode or 0, stdout, stderr), False, False
+        if time.monotonic() >= deadline:
+            stdout, stderr = terminate_process(process)
+            return subprocess.CompletedProcess(args, process.returncode or 124, stdout, stderr), True, False
+        time.sleep(0.2)
+
+
+def limit_wordlist(source: Path, destination: Path, max_candidates: int) -> int:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with source.open("r", encoding="utf-8", errors="ignore") as src, destination.open("w", encoding="utf-8") as dst:
+        for line in src:
+            candidate = line.rstrip("\r\n")
+            if not candidate.strip():
+                continue
+            if count >= max_candidates:
+                break
+            dst.write(candidate + "\n")
+            count += 1
+    return count
+
+
+def write_pin_candidates(destination: Path, max_candidates: int) -> int:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    upper = min(max_candidates, 10_000)
+    with destination.open("w", encoding="utf-8") as handle:
+        for value in range(upper):
+            handle.write(f"{value:04d}\n")
+            count += 1
+    return count
+
+
+def write_scoped_israeli_id_candidates(destination: Path, prefixes: list[str], max_candidates: int) -> int:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    seen: set[str] = set()
+    written = 0
+    with destination.open("w", encoding="utf-8") as handle:
+        for prefix in prefixes:
+            prefix = prefix.strip()
+            if not prefix or not prefix.isdigit() or len(prefix) > 8:
+                continue
+            suffix_width = 8 - len(prefix)
+            suffix_limit = 10 ** suffix_width
+            for suffix in range(suffix_limit):
+                if written >= max_candidates:
+                    return written
+                first_eight = f"{prefix}{suffix:0{suffix_width}d}"
+                candidate = first_eight + israeli_id_check_digit(first_eight)
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                handle.write(candidate + "\n")
+                written += 1
+    return written
+
+
+def run_john_with_wordlist(
+    *,
+    hash_file: Path,
+    wordlist: Path,
+    pot: Path,
+    workdir: Path,
+    timeout: int,
+    cancel_path: Path | None,
+    provider_name: str,
+) -> dict[str, Any]:
+    john = find_tool("john")
+    workdir.mkdir(parents=True, exist_ok=True)
+    pot.parent.mkdir(parents=True, exist_ok=True)
+    clear_john_session(workdir)
+    command = [
+        str(john),
+        f"--wordlist={wordlist}",
+        f"--pot={pot}",
+        f"--session={workdir / 'john-session'}",
+        f"--max-run-time={timeout}",
+        "--verbosity=1",
+        str(hash_file),
+    ]
+    record_wordlist_metadata(workdir=workdir, provider_name=provider_name, wordlist=wordlist)
+    with temporary_john_environment(john_scope_from_path(workdir)) as env:
+        result, timed_out, cancelled = run_cancellable(command, timeout=timeout + 15, cwd=workdir, env=env, cancel_path=cancel_path)
+    found = pot.exists() and pot.stat().st_size > 0
+    if result is not None:
+        raise_for_john_failure(workdir, result, found=found)
+    return {"ok": True, "found": found, "timed_out": (not found) and timed_out, "cancelled": cancelled}
+
+
 JOHN_FATAL_MARKERS = (
     "no password hashes loaded",
     "unknown ciphertext format",
@@ -249,57 +422,67 @@ def extract_hash(source: Path, output: Path) -> dict[str, Any]:
     return {"ok": True, "hash_type": ext.lstrip(".")}
 
 
-def crack(hash_file: Path, wordlist: Path, pot: Path, workdir: Path, timeout: int) -> dict[str, Any]:
-    john = find_tool("john")
-    workdir.mkdir(parents=True, exist_ok=True)
-    pot.parent.mkdir(parents=True, exist_ok=True)
-    clear_john_session(workdir)
-    command = [
-        str(john),
-        f"--wordlist={wordlist}",
-        f"--pot={pot}",
-        f"--session={workdir / 'john-session'}",
-        f"--max-run-time={timeout}",
-        "--verbosity=1",
-        str(hash_file),
-    ]
-    result: subprocess.CompletedProcess[str] | None = None
+def crack(
+    hash_file: Path,
+    wordlist: Path,
+    pot: Path,
+    workdir: Path,
+    timeout: int,
+    max_candidates: int,
+    cancel_path: Path | None,
+    provider_name: str,
+) -> dict[str, Any]:
+    limited_wordlist = workdir / "limited-wordlist.txt"
+    candidate_count = limit_wordlist(wordlist, limited_wordlist, max_candidates)
+    if candidate_count == 0:
+        record_wordlist_metadata(workdir=workdir, provider_name=provider_name, wordlist=limited_wordlist, skipped_empty=True)
+        limited_wordlist.unlink(missing_ok=True)
+        return {"ok": True, "found": False, "timed_out": False, "cancelled": False}
     try:
-        with temporary_john_environment(john_scope_from_path(workdir)) as env:
-            result = run(command, timeout=timeout + 15, cwd=workdir, quiet=False, env=env)
-    except subprocess.TimeoutExpired:
-        pass
-    found = pot.exists() and pot.stat().st_size > 0
-    if result is not None:
-        raise_for_john_failure(workdir, result, found=found)
-    return {"ok": True, "found": found, "timed_out": (not found) and john_timed_out(workdir)}
+        return run_john_with_wordlist(
+            hash_file=hash_file,
+            wordlist=limited_wordlist,
+            pot=pot,
+            workdir=workdir,
+            timeout=timeout,
+            cancel_path=cancel_path,
+            provider_name=provider_name,
+        )
+    finally:
+        limited_wordlist.unlink(missing_ok=True)
 
 
 
-def crack_mask(hash_file: Path, mask: str, pot: Path, workdir: Path, timeout: int) -> dict[str, Any]:
-    john = find_tool("john")
-    workdir.mkdir(parents=True, exist_ok=True)
-    pot.parent.mkdir(parents=True, exist_ok=True)
-    clear_john_session(workdir)
-    command = [
-        str(john),
-        f"--mask={mask}",
-        f"--pot={pot}",
-        f"--session={workdir / 'john-session'}",
-        f"--max-run-time={timeout}",
-        "--verbosity=1",
-        str(hash_file),
-    ]
-    result: subprocess.CompletedProcess[str] | None = None
+def crack_mask(
+    hash_file: Path,
+    mask: str,
+    pot: Path,
+    workdir: Path,
+    timeout: int,
+    max_candidates: int,
+    cancel_path: Path | None,
+    provider_name: str,
+) -> dict[str, Any]:
+    if mask != "?d?d?d?d":
+        raise WorkerError("Unsupported mask policy")
+    candidate_file = workdir / "pin4-candidates.txt"
+    candidate_count = write_pin_candidates(candidate_file, max_candidates)
+    if candidate_count == 0:
+        record_wordlist_metadata(workdir=workdir, provider_name=provider_name, wordlist=candidate_file, skipped_empty=True)
+        candidate_file.unlink(missing_ok=True)
+        return {"ok": True, "found": False, "timed_out": False, "cancelled": False}
     try:
-        with temporary_john_environment(john_scope_from_path(workdir)) as env:
-            result = run(command, timeout=timeout + 15, cwd=workdir, quiet=False, env=env)
-    except subprocess.TimeoutExpired:
-        pass
-    found = pot.exists() and pot.stat().st_size > 0
-    if result is not None:
-        raise_for_john_failure(workdir, result, found=found)
-    return {"ok": True, "found": found, "timed_out": (not found) and john_timed_out(workdir)}
+        return run_john_with_wordlist(
+            hash_file=hash_file,
+            wordlist=candidate_file,
+            pot=pot,
+            workdir=workdir,
+            timeout=timeout,
+            cancel_path=cancel_path,
+            provider_name=provider_name,
+        )
+    finally:
+        candidate_file.unlink(missing_ok=True)
 
 def israeli_id_check_digit(first_eight: str) -> str:
     total = 0
@@ -313,58 +496,34 @@ def is_valid_israeli_id(value: str) -> bool:
     return bool(re.fullmatch(r"\d{9}", value)) and israeli_id_check_digit(value[:8]) == value[8]
 
 
-def generate_israeli_id_candidates(chunk_size: int = 5000) -> Iterable[str]:
-    buffer: list[str] = []
-    for prefix in range(100_000_000):
-        first_eight = f"{prefix:08d}"
-        buffer.append(first_eight + israeli_id_check_digit(first_eight))
-        if len(buffer) >= chunk_size:
-            yield "\n".join(buffer) + "\n"
-            buffer.clear()
-    if buffer:
-        yield "\n".join(buffer) + "\n"
-
-
-def crack_israeli_id(hash_file: Path, pot: Path, workdir: Path, timeout: int) -> dict[str, Any]:
-    john = find_tool("john")
-    workdir.mkdir(parents=True, exist_ok=True)
-    pot.parent.mkdir(parents=True, exist_ok=True)
-    batch_path = workdir / "israeli-id-batch.txt"
-    deadline = time.monotonic() + timeout
-    timed_out = False
+def crack_scoped_id_patterns(
+    hash_file: Path,
+    pot: Path,
+    workdir: Path,
+    timeout: int,
+    max_candidates: int,
+    prefixes: list[str],
+    cancel_path: Path | None,
+    provider_name: str,
+) -> dict[str, Any]:
+    candidate_file = workdir / "scoped-org-patterns.txt"
+    candidate_count = write_scoped_israeli_id_candidates(candidate_file, prefixes, max_candidates)
+    if candidate_count == 0:
+        record_wordlist_metadata(workdir=workdir, provider_name=provider_name, wordlist=candidate_file, skipped_empty=True)
+        candidate_file.unlink(missing_ok=True)
+        return {"ok": True, "found": False, "timed_out": False, "cancelled": False}
     try:
-        with temporary_john_environment(john_scope_from_path(workdir)) as env:
-            for chunk in generate_israeli_id_candidates(chunk_size=50_000):
-                remaining = int(deadline - time.monotonic())
-                if remaining <= 0:
-                    timed_out = True
-                    break
-                batch_path.write_text(chunk, encoding="utf-8")
-                result: subprocess.CompletedProcess[str] | None = None
-                try:
-                    result = run([
-                        str(john),
-                        f"--wordlist={batch_path}",
-                        f"--pot={pot}",
-                        f"--max-run-time={remaining}",
-                        "--verbosity=1",
-                        str(hash_file),
-                    ], timeout=remaining + 5, cwd=workdir, quiet=False, env=env)
-                except subprocess.TimeoutExpired:
-                    timed_out = True
-                    break
-                if result is not None:
-                    found = pot.exists() and pot.stat().st_size > 0
-                    raise_for_john_failure(workdir, result, found=found)
-                if pot.exists() and pot.stat().st_size > 0:
-                    break
-                if time.monotonic() >= deadline:
-                    timed_out = True
-                    break
+        return run_john_with_wordlist(
+            hash_file=hash_file,
+            wordlist=candidate_file,
+            pot=pot,
+            workdir=workdir,
+            timeout=timeout,
+            cancel_path=cancel_path,
+            provider_name=provider_name,
+        )
     finally:
-        batch_path.unlink(missing_ok=True)
-    found = pot.exists() and pot.stat().st_size > 0
-    return {"ok": True, "found": found, "timed_out": (not found) and timed_out}
+        candidate_file.unlink(missing_ok=True)
 
 
 def recover_secret(hash_file: Path, pot: Path, output: Path, workdir: Path) -> dict[str, Any]:
@@ -504,23 +663,152 @@ def mime_type(path: Path) -> str:
     return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
 
-def capped(text: str, limit: int = 12000) -> str:
-    text = text.strip()
-    return text if len(text) <= limit else text[:limit] + "\n...[truncated]"
+PDFID_COUNTERS = (
+    "/JS",
+    "/JavaScript",
+    "/AA",
+    "/OpenAction",
+    "/Launch",
+    "/EmbeddedFile",
+    "/AcroForm",
+    "/XFA",
+    "/RichMedia",
+    "/ObjStm",
+    "/JBIG2Decode",
+)
 
 
-def optional_tool(command: list[str], timeout: int = 90) -> dict[str, Any]:
-    if not shutil.which(command[0]):
-        return {"available": False, "output": ""}
+def detect_tool_version(tool_name: str, raw_stdout: str, raw_stderr: str) -> str | None:
+    text = f"{raw_stdout}\n{raw_stderr}"
+    if tool_name.lower() == "pdfid":
+        match = re.search(r"PDFiD\s+([0-9][^\s]*)", text)
+        return match.group(1) if match else None
+    if tool_name.lower() == "olevba":
+        match = re.search(r"olevba(?:\.py)?\s+([0-9][^\s]*)", text, re.IGNORECASE)
+        return match.group(1) if match else None
+    return None
+
+
+def store_safe_raw_output(
+    *,
+    logs_dir: Path,
+    tool: str,
+    subject: str,
+    raw_stdout: str,
+    raw_stderr: str,
+    ui_limit: int,
+    download_limit: int,
+) -> dict[str, Any]:
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    clean_stdout = strip_ansi_and_control_sequences(raw_stdout)
+    clean_stderr = strip_ansi_and_control_sequences(raw_stderr)
+    display_stdout, stdout_truncated = truncate_text_bytes(clean_stdout, ui_limit)
+    display_stderr, stderr_truncated = truncate_text_bytes(clean_stderr, ui_limit)
+    combined = clean_stdout or ""
+    if clean_stderr:
+        combined = f"{combined}\n--- stderr ---\n{clean_stderr}" if combined else f"--- stderr ---\n{clean_stderr}"
+    combined_download, download_truncated = truncate_text_bytes(combined, download_limit)
+    download_path = None
+    if stdout_truncated or stderr_truncated:
+        stem = f"{slugify_fragment(tool)}-{slugify_fragment(subject)}-raw"
+        path = logs_dir / f"{stem}.txt"
+        path.write_text(combined_download, encoding="utf-8")
+        download_path = str(path.relative_to(logs_dir.parent))
+    return {
+        "raw_stdout": display_stdout,
+        "raw_stderr": display_stderr,
+        "raw_stdout_truncated": stdout_truncated,
+        "raw_stderr_truncated": stderr_truncated,
+        "raw_output_download": download_path,
+        "raw_output_download_truncated": bool(download_path) and download_truncated,
+    }
+
+
+def optional_tool(command: list[str], timeout: int = 90, *, tool_name: str | None = None) -> dict[str, Any]:
+    chosen_name = tool_name or Path(command[0]).name
+    if not command[0] or not shutil.which(command[0]):
+        return {
+            "available": False,
+            "tool_name": chosen_name,
+            "tool_version": None,
+            "exit_status": None,
+            "raw_stdout": "",
+            "raw_stderr": "",
+        }
     try:
         result = run(command, timeout=timeout)
+        raw_stdout = strip_ansi_and_control_sequences(result.stdout or "")
+        raw_stderr = strip_ansi_and_control_sequences(result.stderr or "")
         return {
             "available": True,
-            "return_code": result.returncode,
-            "output": capped((result.stdout or "") + (result.stderr or "")),
+            "tool_name": chosen_name,
+            "tool_version": detect_tool_version(chosen_name, raw_stdout, raw_stderr),
+            "exit_status": result.returncode,
+            "raw_stdout": raw_stdout,
+            "raw_stderr": raw_stderr,
         }
     except subprocess.TimeoutExpired:
-        return {"available": True, "timed_out": True, "output": ""}
+        return {
+            "available": True,
+            "tool_name": chosen_name,
+            "tool_version": None,
+            "exit_status": None,
+            "timed_out": True,
+            "raw_stdout": "",
+            "raw_stderr": "",
+        }
+
+
+def parse_pdfid_output(text: str) -> dict[str, Any]:
+    counters: dict[str, int] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        for token in PDFID_COUNTERS:
+            if stripped.startswith(token):
+                parts = stripped.split()
+                try:
+                    counters[token] = int(parts[-1])
+                except (ValueError, IndexError):
+                    counters[token] = 0
+    return {"counters": {token: counters.get(token, 0) for token in PDFID_COUNTERS}}
+
+
+def parse_olevba_output(text: str) -> dict[str, Any]:
+    rows: list[dict[str, str]] = []
+    headers: list[str] | None = None
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        columns = [column.strip() for column in line.strip().strip("|").split("|")]
+        if not columns or all(not value for value in columns):
+            continue
+        if headers is None and columns[:3] == ["Type", "Keyword", "Description"]:
+            headers = columns
+            continue
+        if headers and columns[0] != "Type" and len(columns) >= len(headers):
+            rows.append({headers[index]: columns[index] for index in range(len(headers))})
+    return {"rows": rows}
+
+
+def build_tool_card(*, tool: str, subject: str, result: dict[str, Any], parsed_findings: dict[str, Any] | None = None) -> dict[str, Any]:
+    safe_output = store_safe_raw_output(
+        logs_dir=result["logs_dir"],
+        tool=tool,
+        subject=subject,
+        raw_stdout=result.get("raw_stdout", ""),
+        raw_stderr=result.get("raw_stderr", ""),
+        ui_limit=result["tool_output_ui_max_bytes"],
+        download_limit=result["tool_output_download_max_bytes"],
+    )
+    return {
+        "tool": tool,
+        "subject": subject,
+        "available": result.get("available", False),
+        "tool_version": result.get("tool_version"),
+        "exit_status": result.get("exit_status"),
+        **safe_output,
+        "parsed_findings": parsed_findings or {},
+    }
 
 
 def scan(target: Path, report_path: Path, artifact_path: Path, rules: Path,
@@ -541,42 +829,77 @@ def scan(target: Path, report_path: Path, artifact_path: Path, rules: Path,
             "mime": mime_type(path),
         })
 
+    ui_limit = max(1, int(os.getenv("PFA_TOOL_OUTPUT_UI_MAX_BYTES", "16384")))
+    download_limit = max(ui_limit, int(os.getenv("PFA_TOOL_OUTPUT_DOWNLOAD_MAX_BYTES", "262144")))
+    logs_dir = report_path.parent / "logs"
+
+    def enrich(result: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **result,
+            "logs_dir": logs_dir,
+            "tool_output_ui_max_bytes": ui_limit,
+            "tool_output_download_max_bytes": download_limit,
+        }
+
+    def public_tool_result(result: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: value
+            for key, value in result.items()
+            if key not in {"logs_dir", "tool_output_ui_max_bytes", "tool_output_download_max_bytes"}
+        }
+
     scan_subject = str(target)
-    clam = optional_tool(["clamscan", "-r", "--infected", "--no-summary", scan_subject], timeout=120)
-    yara = ({"available": False, "output": ""} if not rules.exists()
-            else optional_tool(["yara", "-r", str(rules), scan_subject], timeout=120))
+    clam = enrich(optional_tool(["clamscan", "-r", "--infected", "--no-summary", scan_subject], timeout=120, tool_name="ClamAV"))
+    yara = enrich({
+        "available": False,
+        "tool_name": "YARA",
+        "tool_version": None,
+        "exit_status": None,
+        "raw_stdout": "",
+        "raw_stderr": "",
+    } if not rules.exists() else optional_tool(["yara", "-r", str(rules), scan_subject], timeout=120, tool_name="YARA"))
+    exiftool = enrich(optional_tool(["exiftool", "-json", "-n", "-r", scan_subject], timeout=90, tool_name="ExifTool"))
 
+    tool_cards: list[dict[str, Any]] = []
     office_findings: list[dict[str, Any]] = []
-    for path in files:
-        if path.suffix.lower() in OFFICE_EXTENSIONS:
-            office_findings.append({
-                "file": path.name,
-                "oleid": optional_tool(["oleid", str(path)], timeout=45),
-                "olevba": optional_tool(["olevba", "--analysis", str(path)], timeout=60),
-            })
-
-    exiftool = optional_tool(["exiftool", "-json", "-n", "-r", scan_subject], timeout=90)
-
     pdf_findings: list[dict[str, Any]] = []
     for path in files:
-        if path.suffix.lower() == ".pdf":
-            pdfid = shutil.which("pdfid.py") or shutil.which("pdfid")
-            pdf_findings.append({
+        if path.suffix.lower() in OFFICE_EXTENSIONS:
+            oleid = enrich(optional_tool(["oleid", str(path)], timeout=45, tool_name="oleid"))
+            olevba = enrich(optional_tool(["olevba", "--analysis", str(path)], timeout=60, tool_name="olevba"))
+            parsed_olevba = parse_olevba_output(olevba.get("raw_stdout", ""))
+            office_findings.append({
                 "file": path.name,
-                "pdfid": optional_tool([pdfid, str(path)], timeout=45) if pdfid else {"available": False, "output": ""},
+                "oleid": public_tool_result(oleid),
+                "olevba": public_tool_result(olevba),
+                "parsed_olevba": parsed_olevba,
             })
+            tool_cards.append(build_tool_card(tool="olevba", subject=path.name, result=olevba, parsed_findings=parsed_olevba))
+        if path.suffix.lower() == ".pdf":
+            pdfid_command = shutil.which("pdfid.py") or shutil.which("pdfid")
+            pdfid = enrich(optional_tool([pdfid_command, str(path)], timeout=45, tool_name="PDFiD") if pdfid_command else {
+                "available": False,
+                "tool_name": "PDFiD",
+                "tool_version": None,
+                "exit_status": None,
+                "raw_stdout": "",
+                "raw_stderr": "",
+            })
+            parsed_pdfid = parse_pdfid_output(pdfid.get("raw_stdout", ""))
+            pdf_findings.append({"file": path.name, "pdfid": public_tool_result(pdfid), "parsed_pdfid": parsed_pdfid})
+            tool_cards.append(build_tool_card(tool="PDFiD", subject=path.name, result=pdfid, parsed_findings=parsed_pdfid))
 
-    clam_lines = [line.strip() for line in clam.get("output", "").splitlines() if line.strip()]
+    clam_lines = [line.strip() for line in f"{clam.get('raw_stdout', '')}\n{clam.get('raw_stderr', '')}".splitlines() if line.strip()]
     clam_hits = any(line.endswith("FOUND") for line in clam_lines)
     yara_lines = [
-        line.strip() for line in yara.get("output", "").splitlines()
+        line.strip() for line in f"{yara.get('raw_stdout', '')}\n{yara.get('raw_stderr', '')}".splitlines()
         if line.strip() and not line.lower().startswith(("error", "warning"))
     ]
     yara_hits = bool(yara_lines)
-    macro_hits = any("AutoExec" in f["olevba"].get("output", "") or "Suspicious" in f["olevba"].get("output", "")
-                     for f in office_findings)
-    score = min(100, (70 if clam_hits else 0) + (25 if yara_hits else 0) + (15 if macro_hits else 0))
-    verdict = "malicious_or_high_risk" if clam_hits else "suspicious" if score else "no_obvious_findings"
+    macro_hits = any(row.get("Type") in {"AutoExec", "Suspicious", "IOC"} for finding in office_findings for row in finding.get("parsed_olevba", {}).get("rows", []))
+    pdf_hits = any(any(value > 0 for value in finding.get("parsed_pdfid", {}).get("counters", {}).values()) for finding in pdf_findings)
+    indicator_count = sum(1 for flag in (clam_hits, yara_hits, macro_hits, pdf_hits) if flag)
+    verdict = "review_recommended" if indicator_count else "no_obvious_findings"
 
     if target.is_dir():
         artifact_name = "decrypted-analysis-copy.zip"
@@ -592,21 +915,23 @@ def scan(target: Path, report_path: Path, artifact_path: Path, rules: Path,
     report = {
         "summary": {
             "verdict": verdict,
-            "score": score,
             "file_count": len(files),
             "total_bytes": total,
             "clamav_hits": clam_hits,
             "yara_hits": yara_hits,
             "macro_indicators": macro_hits,
-            "note": "Static findings are indicators, not a final malware verdict.",
+            "pdf_structure_indicators": pdf_hits,
+            "indicator_count": indicator_count,
+            "note": "Raw tool output is the source of truth. Parsed findings are a navigation layer only.",
         },
         "files": metadata,
+        "tool_cards": tool_cards,
         "tools": {
-            "clamav": clam,
-            "yara": yara,
+            "clamav": public_tool_result(clam),
+            "yara": public_tool_result(yara),
             "office": office_findings,
             "pdf": pdf_findings,
-            "exiftool": exiftool,
+            "exiftool": public_tool_result(exiftool),
         },
     }
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -627,6 +952,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pot", required=True, type=Path)
     p.add_argument("--workdir", required=True, type=Path)
     p.add_argument("--timeout", required=True, type=int)
+    p.add_argument("--max-candidates", required=True, type=int)
+    p.add_argument("--cancel-path", required=False, type=Path)
+    p.add_argument("--provider", required=True)
 
     p = sub.add_parser("crack-mask")
     p.add_argument("--hash", required=True, type=Path)
@@ -634,12 +962,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pot", required=True, type=Path)
     p.add_argument("--workdir", required=True, type=Path)
     p.add_argument("--timeout", required=True, type=int)
+    p.add_argument("--max-candidates", required=True, type=int)
+    p.add_argument("--cancel-path", required=False, type=Path)
+    p.add_argument("--provider", required=True)
 
-    p = sub.add_parser("crack-israeli-id")
+    p = sub.add_parser("crack-scoped-id-patterns")
     p.add_argument("--hash", required=True, type=Path)
     p.add_argument("--pot", required=True, type=Path)
     p.add_argument("--workdir", required=True, type=Path)
     p.add_argument("--timeout", required=True, type=int)
+    p.add_argument("--max-candidates", required=True, type=int)
+    p.add_argument("--prefixes", required=True)
+    p.add_argument("--cancel-path", required=False, type=Path)
+    p.add_argument("--provider", required=True)
 
     p = sub.add_parser("recover-secret")
     p.add_argument("--hash", required=True, type=Path)
@@ -669,11 +1004,38 @@ def dispatch_worker_command(argv: list[str]) -> dict[str, Any]:
     if args.command == "extract-hash":
         return extract_hash(args.input.resolve(), args.output.resolve())
     if args.command == "crack":
-        return crack(args.hash.resolve(), args.wordlist.resolve(), args.pot.resolve(), args.workdir.resolve(), max(1, min(args.timeout, 150)))
+        return crack(
+            args.hash.resolve(),
+            args.wordlist.resolve(),
+            args.pot.resolve(),
+            args.workdir.resolve(),
+            max(1, min(args.timeout, 150)),
+            max(1, args.max_candidates),
+            args.cancel_path.resolve() if args.cancel_path else None,
+            args.provider,
+        )
     if args.command == "crack-mask":
-        return crack_mask(args.hash.resolve(), args.mask, args.pot.resolve(), args.workdir.resolve(), max(1, min(args.timeout, 150)))
-    if args.command == "crack-israeli-id":
-        return crack_israeli_id(args.hash.resolve(), args.pot.resolve(), args.workdir.resolve(), max(1, min(args.timeout, 150)))
+        return crack_mask(
+            args.hash.resolve(),
+            args.mask,
+            args.pot.resolve(),
+            args.workdir.resolve(),
+            max(1, min(args.timeout, 150)),
+            max(1, args.max_candidates),
+            args.cancel_path.resolve() if args.cancel_path else None,
+            args.provider,
+        )
+    if args.command == "crack-scoped-id-patterns":
+        return crack_scoped_id_patterns(
+            args.hash.resolve(),
+            args.pot.resolve(),
+            args.workdir.resolve(),
+            max(1, min(args.timeout, 150)),
+            max(1, args.max_candidates),
+            [part.strip() for part in args.prefixes.split(",") if part.strip()],
+            args.cancel_path.resolve() if args.cancel_path else None,
+            args.provider,
+        )
     if args.command == "recover-secret":
         return recover_secret(args.hash.resolve(), args.pot.resolve(), args.output.resolve(), args.workdir.resolve())
     if args.command == "decrypt":

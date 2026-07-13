@@ -1,10 +1,6 @@
 services:
   web:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: web-runtime
-    image: protected-file-analyzer-web:0.1.0
+    image: ${PFA_WEB_IMAGE:-ghcr.io/daniel-brodsky/protected-file-analyzer-docker-web:0.1.0}
     env_file:
       - .env
     environment:
@@ -22,6 +18,9 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    cpus: ${PFA_WEB_CPU_LIMIT:-1.0}
+    mem_limit: ${PFA_WEB_MEMORY_LIMIT:-768m}
+    pids_limit: ${PFA_WEB_PIDS_LIMIT:-256}
     volumes:
       - ./runtime/jobs:/data/jobs
       - ./runtime/wordlists:/data/wordlists
@@ -33,11 +32,7 @@ services:
       start_period: 20s
 
   worker:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: worker-runtime
-    image: protected-file-analyzer-worker:0.1.0
+    image: ${PFA_WORKER_IMAGE:-ghcr.io/daniel-brodsky/protected-file-analyzer-docker-worker:0.1.0}
     env_file:
       - .env
     environment:
@@ -52,6 +47,9 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    cpus: ${PFA_WORKER_CPU_LIMIT:-2.0}
+    mem_limit: ${PFA_WORKER_MEMORY_LIMIT:-2g}
+    pids_limit: ${PFA_WORKER_PIDS_LIMIT:-512}
     volumes:
       - ./runtime/jobs:/data/jobs
       - ./runtime/wordlists:/data/wordlists
@@ -65,4 +63,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-

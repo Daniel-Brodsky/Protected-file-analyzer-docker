@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 from . import __version__
@@ -15,6 +14,18 @@ PROJECT_ROOT = PACKAGE_ROOT.parent.parent
 
 def _path(name: str, default: str) -> Path:
     return Path(os.getenv(name, default)).expanduser().resolve()
+
+
+def _bounded_int(name: str, default: str, *, minimum: int = 1, maximum: int | None = None) -> int:
+    value = int(os.getenv(name, default))
+    value = max(minimum, value)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
+def _truthy_env(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -34,16 +45,31 @@ class Settings:
     max_wordlist_bytes: int = int(os.getenv("PFA_MAX_WORDLIST_MB", "200")) * 1024 * 1024
     max_extracted_bytes: int = int(os.getenv("PFA_MAX_EXTRACTED_MB", "500")) * 1024 * 1024
     max_extracted_files: int = int(os.getenv("PFA_MAX_EXTRACTED_FILES", "5000"))
-    crack_timeout_seconds: int = min(int(os.getenv("PFA_CRACK_TIMEOUT_SECONDS", "120")), 150)
+    crack_timeout_seconds: int = _bounded_int("PFA_CRACK_TIMEOUT_SECONDS", "120", maximum=150)
     max_concurrent_cracks: int = max(1, int(os.getenv("PFA_MAX_CONCURRENT_CRACKS", "1")))
     job_ttl_minutes: int = int(os.getenv("PFA_JOB_TTL_MINUTES", "60"))
     bind_host: str = os.getenv("PFA_BIND_HOST", "127.0.0.1")
     bind_port: int = int(os.getenv("PFA_BIND_PORT", "8088"))
     worker_poll_interval_seconds: float = float(os.getenv("PFA_WORKER_POLL_INTERVAL_SECONDS", "1.0"))
     cleanup_interval_seconds: float = float(os.getenv("PFA_CLEANUP_INTERVAL_SECONDS", "900"))
-    reveal_display_seconds: int = int(os.getenv("PFA_REVEAL_DISPLAY_SECONDS", "30"))
     clamav_enabled: bool = os.getenv("PFA_CLAMAV_ENABLED", "1").lower() not in {"0", "false", "no"}
     secret_key: str = os.getenv("PFA_SECRET_KEY", "change-me")
+
+    recovery_custom_timeout_seconds: int = _bounded_int("PFA_RECOVERY_CUSTOM_TIMEOUT_SECONDS", "45", maximum=150)
+    recovery_custom_max_candidates: int = _bounded_int("PFA_RECOVERY_CUSTOM_MAX_CANDIDATES", "50000")
+    recovery_mounted_timeout_seconds: int = _bounded_int("PFA_RECOVERY_MOUNTED_TIMEOUT_SECONDS", "45", maximum=150)
+    recovery_mounted_max_candidates: int = _bounded_int("PFA_RECOVERY_MOUNTED_MAX_CANDIDATES", "50000")
+    recovery_pin_timeout_seconds: int = _bounded_int("PFA_RECOVERY_PIN_TIMEOUT_SECONDS", "30", maximum=150)
+    recovery_pin_max_candidates: int = _bounded_int("PFA_RECOVERY_PIN_MAX_CANDIDATES", "10000", maximum=10000)
+    recovery_rockyou_timeout_seconds: int = _bounded_int("PFA_RECOVERY_ROCKYOU_TIMEOUT_SECONDS", "60", maximum=150)
+    recovery_rockyou_max_candidates: int = _bounded_int("PFA_RECOVERY_ROCKYOU_MAX_CANDIDATES", "200000")
+    scoped_org_patterns_enabled: bool = _truthy_env("PFA_SCOPED_ORG_PATTERNS_ENABLED", "0")
+    scoped_org_pattern_timeout_seconds: int = _bounded_int("PFA_SCOPED_ORG_PATTERN_TIMEOUT_SECONDS", "30", maximum=150)
+    scoped_org_pattern_max_candidates: int = _bounded_int("PFA_SCOPED_ORG_PATTERN_MAX_CANDIDATES", "20000")
+    scoped_org_id_prefixes_raw: str = os.getenv("PFA_SCOPED_ORG_ID_PREFIXES", "").strip()
+
+    tool_output_ui_max_bytes: int = _bounded_int("PFA_TOOL_OUTPUT_UI_MAX_BYTES", "16384")
+    tool_output_download_max_bytes: int = _bounded_int("PFA_TOOL_OUTPUT_DOWNLOAD_MAX_BYTES", "262144")
 
     @property
     def capabilities_path(self) -> Path:
@@ -52,10 +78,23 @@ class Settings:
     def mounted_wordlists(self) -> list[Path]:
         if not self.wordlists_dir.exists():
             return []
-        return sorted(
-            [p for p in self.wordlists_dir.iterdir() if p.is_file() and p.suffix.lower() in {".txt", ".lst", ".dic", ".wordlist"}],
-            key=lambda p: p.name.lower(),
-        )
+        mounted = [
+            p for p in self.wordlists_dir.iterdir()
+            if p.is_file()
+            and p.suffix.lower() in {".txt", ".lst", ".dic", ".wordlist"}
+            and p.resolve() != self.default_rockyou_path
+        ]
+        return sorted(mounted, key=lambda p: p.name.lower())
+
+    def scoped_org_id_prefixes(self) -> list[str]:
+        prefixes: list[str] = []
+        for raw in self.scoped_org_id_prefixes_raw.split(","):
+            value = raw.strip()
+            if not value:
+                continue
+            if value.isdigit() and 1 <= len(value) <= 8:
+                prefixes.append(value)
+        return prefixes
 
     def load_cached_capabilities(self) -> dict:
         if not self.capabilities_path.exists():
@@ -66,7 +105,6 @@ class Settings:
             return {}
 
 
-@lru_cache(maxsize=1)
 def get_settings() -> Settings:
     settings = Settings()
     settings.data_root.mkdir(parents=True, exist_ok=True)
