@@ -1,0 +1,68 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: web-runtime
+    image: ghcr.io/owner/protected-file-analyzer-web:0.1.0
+    env_file:
+      - .env
+    environment:
+      PFA_BIND_HOST: 0.0.0.0
+      PFA_BIND_PORT: 8088
+      PFA_DATA_ROOT: /data/jobs
+      PFA_WORDLISTS_DIR: /data/wordlists
+      PFA_YARA_RULES_PATH: /app/src/protected_file_analyzer/rules/basic_static.yar
+    ports:
+      - "${PFA_BIND_HOST:-127.0.0.1}:${PFA_BIND_PORT:-8088}:8088"
+    user: "10001:${PFA_RUNTIME_GID:-10001}"
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./runtime/jobs:/data/jobs
+      - ./runtime/wordlists:/data/wordlists
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8088/api/health', timeout=5)\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: worker-runtime
+    image: ghcr.io/owner/protected-file-analyzer-worker:0.1.0
+    env_file:
+      - .env
+    environment:
+      PFA_DATA_ROOT: /data/jobs
+      PFA_WORDLISTS_DIR: /data/wordlists
+      PFA_YARA_RULES_PATH: /app/src/protected_file_analyzer/rules/basic_static.yar
+      PFA_TOOL_RUNNER_BACKEND: ${PFA_TOOL_RUNNER_BACKEND:-local}
+    user: "10001:${PFA_RUNTIME_GID:-10001}"
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./runtime/jobs:/data/jobs
+      - ./runtime/wordlists:/data/wordlists
+    network_mode: none
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from pathlib import Path; import sys; sys.exit(0 if Path('/app/src/protected_file_analyzer/worker_daemon.py').exists() else 1)\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+

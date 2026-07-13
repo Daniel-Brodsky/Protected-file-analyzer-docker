@@ -1,0 +1,73 @@
+name: docker-release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-images:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: web-runtime
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}-web:${{ github.ref_name }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: worker-runtime
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}-worker:${{ github.ref_name }}
+      - name: Build tarball release archive
+        run: |
+          tar \
+            --exclude-vcs \
+            --exclude='.env' \
+            --exclude='.env.local' \
+            --exclude='.env.*.local' \
+            --exclude='.venv' \
+            --exclude='__pycache__' \
+            --exclude='.pytest_cache' \
+            --exclude='.ruff_cache' \
+            --exclude='*.pyc' \
+            --exclude='.coverage' \
+            --exclude='.coverage.*' \
+            --exclude='build' \
+            --exclude='dist' \
+            --exclude='*.egg-info' \
+            --exclude='runtime' \
+            --exclude='data' \
+            --exclude='release' \
+            -czf protected-file-analyzer-${GITHUB_REF_NAME#v}.tar.gz .
+      - name: Build zip release archive
+        run: |
+          zip -r protected-file-analyzer-${GITHUB_REF_NAME#v}.zip . \
+            -x '.git/*' '.env' '.env.local' '.env.*.local' '.venv/*' 'venv/*' '__pycache__/*' '*.pyc' '.pytest_cache/*' '.ruff_cache/*' '.mypy_cache/*' '.coverage' '.coverage.*' 'build/*' 'dist/*' '*.egg-info/*' 'runtime/*' 'data/*' 'release/*' '*.log' '.idea/*' '.vscode/*' '.DS_Store'
+      - run: sha256sum protected-file-analyzer-${GITHUB_REF_NAME#v}.tar.gz > protected-file-analyzer-${GITHUB_REF_NAME#v}.tar.gz.sha256
+      - run: sha256sum protected-file-analyzer-${GITHUB_REF_NAME#v}.zip > protected-file-analyzer-${GITHUB_REF_NAME#v}.zip.sha256
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            protected-file-analyzer-${GITHUB_REF_NAME#v}.tar.gz
+            protected-file-analyzer-${GITHUB_REF_NAME#v}.tar.gz.sha256
+            protected-file-analyzer-${GITHUB_REF_NAME#v}.zip
+            protected-file-analyzer-${GITHUB_REF_NAME#v}.zip.sha256

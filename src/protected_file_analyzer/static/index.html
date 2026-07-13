@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Protected File Analyzer</title>
+  <link rel="stylesheet" href="/styles.css?v=20260712p">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <span class="eyebrow">STATIC ANALYSIS GATEWAY</span>
+        <h1>פתיחת קובץ מוגן לניתוח סטטי</h1>
+        <p>הסיסמה נשארת מוסתרת כברירת מחדל.</p>
+      </div>
+      <div id="health" class="health pending">בודק יכולות…</div>
+    </header>
+
+    <section class="card">
+      <form id="job-form">
+        <label class="dropzone" for="protected-file">
+          <strong>קובץ מוגן</strong>
+          <span>ZIP, 7z, PDF או Microsoft Office — עד 100MB כברירת מחדל</span>
+          <input id="protected-file" name="protected_file" type="file" required>
+        </label>
+
+        <fieldset>
+          <legend>Wordlist</legend>
+          <label class="choice"><input type="radio" name="wordlist_mode" value="rockyou" checked> rockyou (אופציונלי במופע הזה) <span class="choice-hint">(קודם PIN בן 4 ספרות, ואז rockyou אם צריך)</span></label>
+          <label class="choice"><input type="radio" name="wordlist_mode" value="pin4"> PIN בן 4 ספרות (0000–9999)</label>
+          <label class="choice"><input type="radio" name="wordlist_mode" value="israeli_id"> כל מספרי תעודת הזהות הישראלית התקפים (9 ספרות + checksum)</label>
+          <label class="choice"><input type="radio" name="wordlist_mode" value="mounted"> wordlist מותקן/ממופה מראש</label>
+          <select id="mounted-wordlist" name="mounted_wordlist_name" disabled>
+            <option value="">בחר wordlist מותקן</option>
+          </select>
+          <label class="choice"><input type="radio" name="wordlist_mode" value="custom"> העלאת wordlist מותאם</label>
+          <input id="custom-wordlist" name="custom_wordlist" type="file" disabled>
+        </fieldset>
+
+        <label class="authorization">
+          <input name="authorization_confirmed" type="checkbox" value="true" required>
+          אני מאשר שהקובץ שייך לארגון או שניתנה הרשאה מפורשת לנסות לשחזר את הסיסמה שלו.
+        </label>
+
+        <button id="submit" type="submit">התחל פענוח וניתוח</button>
+      </form>
+    </section>
+
+    <section id="progress-card" class="card hidden">
+      <div class="row between">
+        <h2>מצב עבודה</h2>
+        <span id="status-badge" class="badge status-badge">Queued</span>
+      </div>
+      <div class="progress"><div id="progress-bar"></div></div>
+
+      <div id="flight-progress" class="flight-progress" aria-hidden="true">
+        <div id="flight-path" class="flight-path">
+          <div id="flight-trail" class="flight-trail"></div>
+          <div id="flight-plane" class="flight-plane">
+            <img class="plane-icon" src="/plane.svg?v=20260712p" alt="" role="presentation" aria-hidden="true">
+          </div>
+        </div>
+      </div>
+
+      <p id="status-message" class="status-message"></p>
+
+      <div id="stage-progress" class="stage-progress">
+        <div class="stage-card" data-stage="extract_hash">
+          <div class="stage-head"><span>חילוץ hash</span><strong data-stage-value="extract_hash">0%</strong></div>
+          <div class="mini-progress"><div data-stage-bar="extract_hash"></div></div>
+        </div>
+        <div class="stage-card" data-stage="crack">
+          <div class="stage-head"><span>JtR</span><strong data-stage-value="crack">0%</strong></div>
+          <div class="mini-progress"><div data-stage-bar="crack"></div></div>
+        </div>
+        <div class="stage-card" data-stage="recover_secret">
+          <div class="stage-head"><span>סוד זמני</span><strong data-stage-value="recover_secret">0%</strong></div>
+          <div class="mini-progress"><div data-stage-bar="recover_secret"></div></div>
+        </div>
+        <div class="stage-card" data-stage="decrypt">
+          <div class="stage-head"><span>פענוח</span><strong data-stage-value="decrypt">0%</strong></div>
+          <div class="mini-progress"><div data-stage-bar="decrypt"></div></div>
+        </div>
+        <div class="stage-card" data-stage="static_scan">
+          <div class="stage-head"><span>סריקה סטטית</span><strong data-stage-value="static_scan">0%</strong></div>
+          <div class="mini-progress"><div data-stage-bar="static_scan"></div></div>
+        </div>
+      </div>
+
+      <div class="timeline" id="timeline"></div>
+    </section>
+
+    <section id="result-card" class="card hidden">
+      <h2>ממצאי triage</h2>
+      <div id="summary-grid" class="summary-grid"></div>
+      <div class="actions">
+        <a id="artifact-link" class="button secondary" href="#">הורדת עותק לא מוגן</a>
+        <a id="report-link" class="button secondary" href="#">הורדת דוח JSON</a>
+        <button id="reveal-password" class="button secondary" type="button">Reveal סיסמה</button>
+        <button id="delete-job" class="danger" type="button">מחיקת כל חומרי העבודה</button>
+      </div>
+      <div id="password-panel" class="password-panel hidden">
+        <div class="password-header">
+          <strong>סיסמה ששוחזרה</strong>
+          <span id="password-expiry">תימחק מהמסך אוטומטית</span>
+        </div>
+        <input id="revealed-password" type="password" readonly autocomplete="off" spellcheck="false" aria-label="Recovered password">
+      </div>
+      <details>
+        <summary>דוח מלא</summary>
+        <pre id="report-json"></pre>
+      </details>
+    </section>
+
+    <section class="notice">
+      <strong>גבול אבטחה:</strong> המערכת אינה מריצה את הקובץ. תוצאה נקייה אינה מוכיחה שהקובץ בטוח; היא רק מסכמת אינדיקציות סטטיות.
+    </section>
+  </main>
+  <script src="/app.js?v=20260712p" defer></script>
+</body>
+</html>
