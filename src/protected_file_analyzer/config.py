@@ -52,7 +52,6 @@ class Settings:
     bind_port: int = int(os.getenv("PFA_BIND_PORT", "8088"))
     worker_poll_interval_seconds: float = float(os.getenv("PFA_WORKER_POLL_INTERVAL_SECONDS", "1.0"))
     cleanup_interval_seconds: float = float(os.getenv("PFA_CLEANUP_INTERVAL_SECONDS", "900"))
-    clamav_enabled: bool = os.getenv("PFA_CLAMAV_ENABLED", "1").lower() not in {"0", "false", "no"}
     secret_key: str = os.getenv("PFA_SECRET_KEY", "change-me")
 
     recovery_custom_timeout_seconds: int = _bounded_int("PFA_RECOVERY_CUSTOM_TIMEOUT_SECONDS", "45", maximum=150)

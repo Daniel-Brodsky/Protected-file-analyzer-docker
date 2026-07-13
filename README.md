@@ -21,7 +21,7 @@ This project packages that workflow behind a small web UI and API while keeping 
 - Verified John the Ripper + `*2john` extractor usage
 - Uploaded custom, mounted organization, 4-digit PIN, optional rockyou, and optional scoped-organization recovery providers
 - Decryption and artifact download after successful recovery
-- Static analysis with YARA, oletools, PDFiD, ExifTool, and optional ClamAV
+- Static analysis with YARA, oletools, PDFiD, and ExifTool
 - Password redaction in status and report outputs
 
 ## Supported protected-file types
@@ -234,7 +234,7 @@ All supported configuration lives in `.env.example`.
 - `PFA_WORKER_POLL_INTERVAL_SECONDS`
 - `PFA_CLEANUP_INTERVAL_SECONDS`
 - `PFA_JOB_TTL_MINUTES`
-- `PFA_CLAMAV_ENABLED`
+
 - `PFA_WEB_CPU_LIMIT`
 - `PFA_WEB_MEMORY_LIMIT`
 - `PFA_WEB_PIDS_LIMIT`

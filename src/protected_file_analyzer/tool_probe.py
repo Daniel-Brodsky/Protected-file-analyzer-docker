@@ -74,8 +74,6 @@ def verify_local_toolchain() -> dict[str, Any]:
         olevba_path = shutil.which("olevba")
         pdfid_path = shutil.which("pdfid") or shutil.which("pdfid.py")
         exiftool_path = shutil.which("exiftool")
-        clamav_path = shutil.which("clamscan")
-
         extractors = {
             "john": _run_success([str(john_path), "--list=formats"])[0],
             "zip2john": _run_nonempty(tool_worker.script_command(zip2john_path, str(fixtures.zip_file)))[0],
@@ -89,7 +87,6 @@ def verify_local_toolchain() -> dict[str, Any]:
             "olevba": _run_success([olevba_path, "--help"])[0] if olevba_path else False,
             "pdfid": _run_nonempty([pdfid_path, str(fixtures.pdf_file)])[0] if pdfid_path else False,
             "exiftool": _run_nonempty([exiftool_path, str(fixtures.pdf_file)])[0] if exiftool_path else False,
-            "clamav": _run_success([clamav_path, "--version"])[0] if clamav_path else False,
         }
         return {
             "extractors": extractors,
@@ -105,7 +102,6 @@ def verify_local_toolchain() -> dict[str, Any]:
                 "olevba": olevba_path,
                 "pdfid": pdfid_path,
                 "exiftool": exiftool_path,
-                "clamav": clamav_path,
             },
         }
 

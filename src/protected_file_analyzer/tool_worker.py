@@ -849,7 +849,6 @@ def scan(target: Path, report_path: Path, artifact_path: Path, rules: Path,
         }
 
     scan_subject = str(target)
-    clam = enrich(optional_tool(["clamscan", "-r", "--infected", "--no-summary", scan_subject], timeout=120, tool_name="ClamAV"))
     yara = enrich({
         "available": False,
         "tool_name": "YARA",
@@ -889,8 +888,6 @@ def scan(target: Path, report_path: Path, artifact_path: Path, rules: Path,
             pdf_findings.append({"file": path.name, "pdfid": public_tool_result(pdfid), "parsed_pdfid": parsed_pdfid})
             tool_cards.append(build_tool_card(tool="PDFiD", subject=path.name, result=pdfid, parsed_findings=parsed_pdfid))
 
-    clam_lines = [line.strip() for line in f"{clam.get('raw_stdout', '')}\n{clam.get('raw_stderr', '')}".splitlines() if line.strip()]
-    clam_hits = any(line.endswith("FOUND") for line in clam_lines)
     yara_lines = [
         line.strip() for line in f"{yara.get('raw_stdout', '')}\n{yara.get('raw_stderr', '')}".splitlines()
         if line.strip() and not line.lower().startswith(("error", "warning"))
@@ -898,7 +895,7 @@ def scan(target: Path, report_path: Path, artifact_path: Path, rules: Path,
     yara_hits = bool(yara_lines)
     macro_hits = any(row.get("Type") in {"AutoExec", "Suspicious", "IOC"} for finding in office_findings for row in finding.get("parsed_olevba", {}).get("rows", []))
     pdf_hits = any(any(value > 0 for value in finding.get("parsed_pdfid", {}).get("counters", {}).values()) for finding in pdf_findings)
-    indicator_count = sum(1 for flag in (clam_hits, yara_hits, macro_hits, pdf_hits) if flag)
+    indicator_count = sum(1 for flag in (yara_hits, macro_hits, pdf_hits) if flag)
     verdict = "review_recommended" if indicator_count else "no_obvious_findings"
 
     if target.is_dir():
@@ -917,7 +914,6 @@ def scan(target: Path, report_path: Path, artifact_path: Path, rules: Path,
             "verdict": verdict,
             "file_count": len(files),
             "total_bytes": total,
-            "clamav_hits": clam_hits,
             "yara_hits": yara_hits,
             "macro_indicators": macro_hits,
             "pdf_structure_indicators": pdf_hits,
@@ -927,7 +923,6 @@ def scan(target: Path, report_path: Path, artifact_path: Path, rules: Path,
         "files": metadata,
         "tool_cards": tool_cards,
         "tools": {
-            "clamav": public_tool_result(clam),
             "yara": public_tool_result(yara),
             "office": office_findings,
             "pdf": pdf_findings,

@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv python3-dev \
     build-essential gcc g++ make curl ca-certificates \
     libqpdf-dev libqpdf30 libmagic1 libmagic-dev \
-    john john-data p7zip-full yara oletools pdfid libimage-exiftool-perl clamav file perl libcompress-raw-lzma-perl \
+    john john-data p7zip-full yara oletools pdfid libimage-exiftool-perl file perl libcompress-raw-lzma-perl \
     && rm -rf /var/lib/apt/lists/*
 RUN perl -MCompress::Raw::Lzma -e 'print "OK\\n"' \
     && test -x /usr/bin/7z2john \
