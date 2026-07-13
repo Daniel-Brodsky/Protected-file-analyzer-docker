@@ -4,7 +4,7 @@ param(
   [string]$InstallDir = $env:PFA_INSTALL_DIR
 )
 if (-not $Version) { $Version = '0.1.0' }
-if (-not $Repo) { $Repo = 'OWNER/REPO' }
+if (-not $Repo) { $Repo = 'Daniel-Brodsky/Protected-file-analyzer-docker' }
 if (-not $InstallDir) { $InstallDir = Join-Path $HOME 'protected-file-analyzer' }
 $baseUrl = if ($env:PFA_RELEASE_BASE_URL) { $env:PFA_RELEASE_BASE_URL } else { "https://github.com/$Repo/releases/download/v$Version" }
 $archiveName = "protected-file-analyzer-$Version.zip"

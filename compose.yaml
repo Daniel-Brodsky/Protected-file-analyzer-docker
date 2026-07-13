@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       target: web-runtime
-    image: ghcr.io/owner/protected-file-analyzer-web:0.1.0
+    image: protected-file-analyzer-web:0.1.0
     env_file:
       - .env
     environment:
@@ -37,7 +37,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       target: worker-runtime
-    image: ghcr.io/owner/protected-file-analyzer-worker:0.1.0
+    image: protected-file-analyzer-worker:0.1.0
     env_file:
       - .env
     environment:

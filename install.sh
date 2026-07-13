@@ -2,7 +2,7 @@
 set -euo pipefail
 
 VERSION="${PFA_VERSION:-0.1.0}"
-REPO="${PFA_REPO:-OWNER/REPO}"
+REPO="${PFA_REPO:-Daniel-Brodsky/Protected-file-analyzer-docker}"
 BASE_URL="${PFA_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/v${VERSION}}"
 ARCHIVE_NAME="protected-file-analyzer-${VERSION}.tar.gz"
 ARCHIVE_URL="${BASE_URL}/${ARCHIVE_NAME}"
