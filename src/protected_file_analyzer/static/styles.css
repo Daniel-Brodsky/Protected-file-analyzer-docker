@@ -19,6 +19,7 @@ body {
   background: radial-gradient(circle at top left, #12304a 0, transparent 35%), var(--bg);
   color: var(--text);
 }
+html[dir="rtl"] body { direction: rtl; }
 .shell { width: min(980px, calc(100% - 32px)); margin: 36px auto 60px; }
 .hero { display: flex; gap: 24px; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
 .eyebrow { color: var(--accent); letter-spacing: .18em; font-size: .75rem; font-weight: 800; }
@@ -163,7 +164,7 @@ html[dir="rtl"] .flight-plane .plane-icon { transform: scaleX(-1); }
 .timeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 16px; }
 .timeline span { font-size: .78rem; color: var(--muted); text-align: center; border-top: 2px solid var(--border); padding-top: 8px; }
 .timeline span.active { color: var(--accent); border-color: var(--accent); }
-.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: stretch; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: stretch; }
 .summary-card {
   background: var(--panel-2);
   padding: 16px;
@@ -173,6 +174,8 @@ html[dir="rtl"] .flight-plane .plane-icon { transform: scaleX(-1); }
   flex-direction: column;
   gap: 8px;
   min-height: 92px;
+  min-width: 0;
+  overflow: hidden;
 }
 .summary-card.verdict { grid-column: 1 / -1; }
 .summary-label {
@@ -240,6 +243,7 @@ pre { direction: ltr; text-align: left; max-height: 420px; overflow: auto; backg
 .tool-card-header {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 16px;
   align-items: flex-start;
   margin-bottom: 12px;
@@ -277,10 +281,17 @@ pre { direction: ltr; text-align: left; max-height: 420px; overflow: auto; backg
 }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
+.tool-card,
+.tab-panel { min-width: 0; }
 .tool-output-note {
   margin: 10px 0 0;
   color: var(--muted);
   font-size: .82rem;
+}
+.tech-ltr {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
 }
 @media (max-width: 650px) {
   .hero { flex-direction: column; }

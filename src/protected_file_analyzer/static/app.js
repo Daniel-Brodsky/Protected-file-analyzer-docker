@@ -26,6 +26,45 @@ const stages = [
   { id: 'completed', label: 'Completed', start: 97, end: 100 }
 ];
 
+const statusLabels = {
+  queued: 'ממתין',
+  running: 'בתהליך',
+  completed: 'הושלם',
+  failed: 'נכשל',
+  cancelled: 'בוטל'
+};
+
+const verdictLabels = {
+  no_obvious_findings: 'לא נמצאו אינדיקציות בולטות',
+  review_recommended: 'מומלץ לבצע בדיקה ידנית'
+};
+
+const knownUiMessages = {
+  Preparing: 'מכין את הניתוח',
+  'Recovering access': 'מנסה לשחזר גישה לקובץ',
+  Decrypting: 'מפענח את הקובץ',
+  'Static analysis': 'מריץ ניתוח סטטי',
+  Completed: 'הניתוח הושלם',
+  Cancelled: 'הניתוח בוטל',
+  'Unable to recover access within configured limits': 'לא ניתן היה לשחזר גישה במסגרת המגבלות שהוגדרו.',
+  'Unable to recover access with configured policy': 'לא ניתן היה לשחזר גישה באמצעות המדיניות שהוגדרה.',
+  Cancelling: 'מבטל את הניתוח…'
+};
+
+const knownUiErrors = {
+  'Authorization confirmation is required': 'יש לאשר הרשאה לפני תחילת הניתוח.',
+  'Uploaded file exceeds the configured limit': 'הקובץ שהועלה חורג מהמגבלה שהוגדרה.',
+  'Job not found': 'העבודה לא נמצאה.',
+  'Report is not ready': 'הדוח עדיין לא מוכן.',
+  'Report not found': 'הדוח לא נמצא.',
+  'Tool output not found': 'פלט הכלי לא נמצא.',
+  'Artifact is not ready': 'ה־artifact עדיין לא מוכן.',
+  'Cancel the analysis before deleting it': 'יש לבטל את הניתוח לפני המחיקה.',
+  'Job creation failed': 'יצירת העבודה נכשלה.',
+  'Cancellation failed': 'ביטול העבודה נכשל.',
+  'Delete failed': 'מחיקת העבודה נכשלה.'
+};
+
 let currentJob = null;
 let pollTimer = null;
 
@@ -42,6 +81,28 @@ function appendTextElement(parent, tagName, text, className = '') {
   node.textContent = text;
   parent.appendChild(node);
   return node;
+}
+
+function techify(node) {
+  node.classList.add('tech-ltr');
+  node.dir = 'ltr';
+  return node;
+}
+
+function displayStatus(status) {
+  return statusLabels[status] || status;
+}
+
+function displayVerdict(verdict) {
+  return verdictLabels[verdict] || verdict || 'לא זמין';
+}
+
+function translateUiMessage(message) {
+  return knownUiMessages[message] || message || '';
+}
+
+function translateUiError(message) {
+  return knownUiErrors[message] || message || 'אירעה שגיאה.';
 }
 
 function currentStageId(stage, status) {
@@ -91,27 +152,28 @@ function updateStageProgress(state) {
 }
 
 function applyStatusState(state) {
-  statusBadge.textContent = state.status;
+  statusBadge.textContent = displayStatus(state.status);
   statusBadge.className = errorStatuses.includes(state.status) ? 'badge status-badge error' : 'badge status-badge';
-  statusMessage.textContent = state.message || '';
+  statusMessage.textContent = translateUiMessage(state.message || '');
   statusMessage.className = errorStatuses.includes(state.status) ? 'status-message error' : 'status-message';
 }
 
 function renderSummaryGrid(summary) {
   clearChildren(summaryGrid);
   const summaryItems = [
-    { label: 'Verdict', value: summary.verdict },
-    { label: 'Files', value: summary.file_count },
-    { label: 'Total bytes', value: summary.total_bytes },
-    { label: 'Indicators', value: summary.indicator_count },
-    { label: 'ClamAV hits', value: summary.clamav_hits ? 'Yes' : 'No' },
-    { label: 'YARA hits', value: summary.yara_hits ? 'Yes' : 'No' }
+    { label: 'הכרעה', value: displayVerdict(summary.verdict), technical: false },
+    { label: 'קבצים', value: summary.file_count, technical: true },
+    { label: 'סך הכול בתים', value: summary.total_bytes, technical: true },
+    { label: 'אינדיקטורים', value: summary.indicator_count, technical: true },
+    { label: 'פגיעות YARA', value: summary.yara_hits ? 'כן' : 'לא', technical: false },
+    { label: 'אינדיקטורי מאקרו', value: summary.macro_indicators ? 'כן' : 'לא', technical: false }
   ];
   summaryItems.forEach(item => {
     const card = document.createElement('div');
     card.className = 'summary-card';
     appendTextElement(card, 'span', String(item.label), 'summary-label');
-    appendTextElement(card, 'strong', String(item.value ?? 'n/a'), 'summary-value');
+    const valueNode = appendTextElement(card, 'strong', String(item.value ?? 'לא זמין'), 'summary-value');
+    if (item.technical) techify(valueNode);
     summaryGrid.appendChild(card);
   });
 }
@@ -137,8 +199,10 @@ function buildToolCard(card, index) {
   const titleWrap = document.createElement('div');
   const title = document.createElement('h4');
   title.textContent = `${card.tool} · ${card.subject}`;
+  techify(title);
   const meta = document.createElement('p');
   meta.textContent = `Version: ${card.tool_version || 'unavailable'} · Exit: ${card.exit_status ?? 'n/a'}`;
+  techify(meta);
   titleWrap.append(title, meta);
 
   const rightWrap = document.createElement('div');
@@ -146,12 +210,13 @@ function buildToolCard(card, index) {
   const badge = document.createElement('span');
   badge.className = `badge ${card.available ? 'ok' : 'error'}`;
   badge.textContent = card.available ? 'available' : 'unavailable';
+  techify(badge);
   rightWrap.appendChild(badge);
   if (card.raw_output_download) {
     const link = document.createElement('a');
     link.className = 'button secondary tool-download';
     link.href = `/api/jobs/${currentJob}/tool-output/${card.raw_output_download}`;
-    link.textContent = 'Download raw output';
+    link.textContent = 'הורדת פלט גולמי';
     rightWrap.appendChild(link);
   }
 
@@ -160,22 +225,22 @@ function buildToolCard(card, index) {
   const tabList = document.createElement('div');
   tabList.className = 'tab-list';
   tabList.setAttribute('role', 'tablist');
-  tabList.setAttribute('aria-label', `${card.tool} tabs`);
+  tabList.setAttribute('aria-label', `לשוניות ${card.tool}`);
 
   const panels = [
     {
       key: 'native',
-      label: 'Native Output',
+      label: card.tool === 'olevba' ? 'פלט מקורי' : 'פלט כלי',
       content: [
         card.raw_stdout || '',
         card.raw_stderr ? `--- stderr ---\n${card.raw_stderr}` : ''
-      ].filter(Boolean).join(card.raw_stdout && card.raw_stderr ? '\n' : '') || 'No native output captured.',
+      ].filter(Boolean).join(card.raw_stdout && card.raw_stderr ? '\n' : '') || 'לא נלכד פלט מהכלי.',
       truncated: Boolean(card.raw_stdout_truncated || card.raw_stderr_truncated),
       downloadTruncated: Boolean(card.raw_output_download_truncated)
     },
     {
       key: 'parsed',
-      label: 'Parsed Findings',
+      label: 'ממצאים מפוענחים',
       content: JSON.stringify(card.parsed_findings || {}, null, 2),
       truncated: false,
       downloadTruncated: false
@@ -196,6 +261,7 @@ function buildToolCard(card, index) {
     button.type = 'button';
     button.dataset.tabTarget = panel.key;
     button.textContent = panel.label;
+    if (panel.label === 'JSON') techify(button);
     tabList.appendChild(button);
 
     const panelNode = buildPanel(panel.key, panel.content);
@@ -204,8 +270,8 @@ function buildToolCard(card, index) {
       const note = document.createElement('p');
       note.className = 'tool-output-note';
       note.textContent = panel.downloadTruncated
-        ? 'Displayed output is truncated. The downloadable raw-output file is also size-limited for safety.'
-        : 'Displayed output is truncated. Use the raw-output download for the larger safe capture.';
+        ? 'הפלט המוצג מקוצר. גם קובץ ה־raw-output להורדה מוגבל בגודל מטעמי בטיחות.'
+        : 'הפלט המוצג מקוצר. אפשר להשתמש בהורדת raw-output כדי לקבל את הלכידה הבטוחה והגדולה יותר.';
       panelNode.appendChild(note);
     }
     panelNodes.push(panelNode);
@@ -244,12 +310,11 @@ async function checkHealth() {
       fetch('/api/capabilities')
     ]);
     const healthData = await healthResponse.json();
-    const capabilities = await capabilitiesResponse.json();
-    const rockyouState = capabilities.wordlists?.rockyou ? 'rockyou available' : 'rockyou unavailable';
-    health.textContent = healthData.ready ? `Ready (${healthData.runner_backend}; ${rockyouState})` : 'Not ready';
+    await capabilitiesResponse.json();
+    health.textContent = healthData.ready ? 'מוכן' : 'לא מוכן';
     health.className = `health ${healthData.ready ? 'ok' : 'bad'}`;
   } catch {
-    health.textContent = 'Connection error';
+    health.textContent = 'שגיאת חיבור';
     health.className = 'health bad';
   }
 }
@@ -263,7 +328,7 @@ form.addEventListener('submit', async event => {
   try {
     const response = await fetch('/api/jobs', { method: 'POST', body });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Job creation failed');
+    if (!response.ok) throw new Error(translateUiError(data.detail || 'Job creation failed'));
     currentJob = data.job_id;
     progressCard.classList.remove('hidden');
     updateProgress(0);
@@ -271,7 +336,7 @@ form.addEventListener('submit', async event => {
     setTimeline('preparing', 'queued');
     await pollJob();
   } catch (error) {
-    alert(error.message);
+    alert(translateUiError(error.message));
     setRunningControls(false);
   }
 });
@@ -282,10 +347,10 @@ cancelJobButton.addEventListener('click', async () => {
   try {
     const response = await fetch(`/api/jobs/${currentJob}/cancel`, { method: 'POST' });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || 'Cancellation failed');
-    statusMessage.textContent = payload.message || 'Cancelling';
+    if (!response.ok) throw new Error(translateUiError(payload.detail || 'Cancellation failed'));
+    statusMessage.textContent = translateUiMessage(payload.message || 'Cancelling');
   } catch (error) {
-    alert(error.message);
+    alert(translateUiError(error.message));
     cancelJobButton.disabled = false;
   }
 });
@@ -326,7 +391,7 @@ document.querySelector('#delete-job').addEventListener('click', async () => {
   const response = await fetch(`/api/jobs/${currentJob}`, { method: 'DELETE' });
   if (!response.ok) {
     const payload = await response.json();
-    alert(payload.detail || 'Delete failed');
+    alert(translateUiError(payload.detail || 'Delete failed'));
     return;
   }
   currentJob = null;
@@ -343,7 +408,7 @@ document.querySelector('#delete-job').addEventListener('click', async () => {
   setRunningControls(false);
 });
 
-window.__uiVersion = '20260713b';
+window.__uiVersion = '20260713c';
 window.__uiDebug = {
   updateProgress,
   updateStageProgress,

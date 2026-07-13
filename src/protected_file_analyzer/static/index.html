@@ -1,51 +1,51 @@
 <!doctype html>
-<html lang="en">
+<html lang="he" dir="rtl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Protected File Analyzer</title>
-  <link rel="stylesheet" href="/styles.css?v=20260713b">
+  <title>ניתוח קבצים מוגנים</title>
+  <link rel="stylesheet" href="/styles.css?v=20260713c">
 </head>
 <body>
   <main class="shell">
     <header class="hero">
       <div>
-        <span class="eyebrow">STATIC ANALYSIS GATEWAY</span>
-        <h1>Analyze protected files without exposing the recovered password</h1>
-        <p>The service handles format detection, recovery policy, decryption, and static analysis internally.</p>
+        <span class="eyebrow">שער ניתוח סטטי</span>
+        <h1>ניתוח קבצים מוגנים</h1>
+        <p>השירות מטפל בזיהוי פורמט, במדיניות שחזור גישה, בפענוח ובניתוח סטטי בתוך המערכת.</p>
       </div>
-      <div id="health" class="health pending">Checking capabilities…</div>
+      <div id="health" class="health pending">בודק יכולות…</div>
     </header>
 
     <section class="card">
       <form id="job-form">
         <label class="dropzone" for="protected-file">
-          <strong>Protected file</strong>
-          <span>ZIP, 7z, PDF, or Microsoft Office — 100MB by default</span>
+          <strong>קובץ מוגן</strong>
+          <span>ZIP, 7z, PDF או Microsoft Office — עד 100MB כברירת מחדל</span>
           <input id="protected-file" name="protected_file" type="file" required>
         </label>
 
         <label class="choice-block" for="custom-wordlist">
-          <strong>Optional custom wordlist</strong>
-          <span>If supplied, it is used internally as part of the fixed recovery policy.</span>
+          <strong>Wordlist מותאם אופציונלי</strong>
+          <span>אם יועלה, הוא ישמש בתוך מדיניות שחזור הגישה הקבועה של המערכת.</span>
           <input id="custom-wordlist" name="custom_wordlist" type="file">
         </label>
 
         <label class="authorization">
           <input name="authorization_confirmed" type="checkbox" value="true" required>
-          I confirm I am authorized to analyze this protected file.
+          אני מאשר/ת שיש לי הרשאה לנתח את הקובץ המוגן הזה.
         </label>
 
-        <button id="submit" type="submit">Analyze file</button>
+        <button id="submit" type="submit">התחלת ניתוח</button>
       </form>
     </section>
 
     <section id="progress-card" class="card hidden">
       <div class="row between">
-        <h2>Analysis progress</h2>
+        <h2>התקדמות הניתוח</h2>
         <div class="row progress-actions">
-          <button id="cancel-job" class="danger hidden" type="button">Cancel analysis</button>
-          <span id="status-badge" class="badge status-badge">Queued</span>
+          <button id="cancel-job" class="danger hidden" type="button">ביטול הניתוח</button>
+          <span id="status-badge" class="badge status-badge">ממתין</span>
         </div>
       </div>
       <div class="progress"><div id="progress-bar"></div></div>
@@ -78,27 +78,24 @@
     </section>
 
     <section id="result-card" class="card hidden">
-      <h2>Findings</h2>
+      <h2>ממצאים</h2>
       <div id="summary-grid" class="summary-grid"></div>
       <div class="actions">
-        <a id="artifact-link" class="button secondary" href="#">Download decrypted evidence</a>
-        <a id="report-link" class="button secondary" href="#">Download JSON report</a>
-        <button id="delete-job" class="danger" type="button">Delete analysis</button>
+        <a id="artifact-link" class="button secondary" href="#">הורדת artifact מפוענח</a>
+        <a id="report-link" class="button secondary" href="#">הורדת דוח JSON</a>
+        <button id="delete-job" class="danger" type="button">מחיקת הניתוח</button>
       </div>
       <section class="card nested-card">
-        <h3>Tool cards</h3>
+        <h3>כרטיסי כלים</h3>
         <div id="tool-cards" class="tool-cards"></div>
       </section>
       <details>
-        <summary>Full JSON report</summary>
+        <summary>דוח JSON מלא</summary>
         <pre id="report-json"></pre>
       </details>
     </section>
 
-    <section class="notice">
-      <strong>Security boundary:</strong> raw tool output remains the source of truth, and a clean result is not proof of safety.
-    </section>
   </main>
-  <script src="/app.js?v=20260713b" defer></script>
+  <script src="/app.js?v=20260713c" defer></script>
 </body>
 </html>

@@ -12,7 +12,8 @@ def test_index_exposes_single_analyze_action_generic_progress_and_cancel(app_env
 
     assert response.status_code == 200
     html = response.text
-    assert 'Analyze file' in html
+    assert '<html lang="he" dir="rtl">' in html
+    assert 'התחלת ניתוח' in html
     assert 'Preparing' in html
     assert 'Recovering access' in html
     assert 'Decrypting' in html
@@ -44,12 +45,13 @@ def test_static_assets_render_safe_tool_cards_without_unsafe_tool_html():
     styles = (static_dir / 'styles.css').read_text(encoding='utf-8')
 
     assert 'tool-card' in script
-    assert 'Native Output' in script
-    assert 'Parsed Findings' in script
-    assert 'Download raw output' in script
+    assert 'פלט כלי' in script
+    assert 'ממצאים מפוענחים' in script
+    assert 'הורדת פלט גולמי' in script
     assert 'innerHTML = (report.tool_cards' not in script
     assert 'textContent = JSON.stringify(report, null, 2)' in script
     assert '.tool-card' in styles
     assert '.tab-list' in styles
     assert '.tool-output-note' in styles
+    assert '.tech-ltr' in styles
     assert 'overflow-wrap: anywhere' in styles or 'word-break: break-word' in styles
