@@ -18,7 +18,6 @@ class RecoveryAttempt:
 
 
 INTERNAL_POLICY_ORDER = (
-    "custom_upload",
     "mounted_wordlists",
     "pin4",
     "rockyou",
@@ -32,7 +31,6 @@ def describe_wordlist_providers(settings: Settings) -> dict:
     return {
         "rockyou": settings.default_rockyou_path.exists(),
         "mounted": [path.name for path in mounted],
-        "custom_upload": True,
         "scoped_org_patterns": {
             "enabled": settings.scoped_org_patterns_enabled,
             "configured_prefixes": len(scoped_prefixes),
@@ -42,18 +40,8 @@ def describe_wordlist_providers(settings: Settings) -> dict:
     }
 
 
-def build_recovery_plan(settings: Settings, *, custom_wordlist_path: Path | None = None) -> list[RecoveryAttempt]:
+def build_recovery_plan(settings: Settings) -> list[RecoveryAttempt]:
     attempts: list[RecoveryAttempt] = []
-    if custom_wordlist_path and custom_wordlist_path.exists():
-        attempts.append(
-            RecoveryAttempt(
-                kind="wordlist",
-                source="custom_upload",
-                path=custom_wordlist_path,
-                timeout_seconds=settings.recovery_custom_timeout_seconds,
-                max_candidates=settings.recovery_custom_max_candidates,
-            )
-        )
     for candidate in settings.mounted_wordlists():
         attempts.append(
             RecoveryAttempt(

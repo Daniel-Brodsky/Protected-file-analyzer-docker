@@ -41,8 +41,6 @@ def test_pipeline_uses_bounded_policy_generic_stages_and_cleans_secrets(app_env)
             return WorkerResult(ok=True, payload={"ok": True})
         if command == 'crack':
             wordlist = Path(values['--wordlist'])
-            if wordlist.name == 'custom-wordlist.txt':
-                return WorkerResult(ok=True, payload={"ok": True, "found": False, "timed_out": False, "cancelled": False})
             if wordlist.name == 'org.txt':
                 pot = Path(values['--pot'])
                 pot.write_text('fake-pot', encoding='utf-8')
@@ -74,12 +72,10 @@ def test_pipeline_uses_bounded_policy_generic_stages_and_cleans_secrets(app_env)
 
     runner = FakeRunner(behavior)
     job_id = uuid.uuid4().hex
-    job_dir = store.create(job_id, {"original_name": "sample.pdf", "format": "pdf", "custom_wordlist_supplied": True})
+    job_dir = store.create(job_id, {"original_name": "sample.pdf", "format": "pdf"})
     source = job_dir / 'input' / 'protected.pdf'
     source.write_bytes(b'protected')
-    custom_wordlist = job_dir / 'input' / 'custom-wordlist.txt'
-    custom_wordlist.write_text('guess\n', encoding='utf-8')
-    store.update(job_id, source_relative='input/protected.pdf', source_size=source.stat().st_size, custom_wordlist_path=str(custom_wordlist))
+    store.update(job_id, source_relative='input/protected.pdf', source_size=source.stat().st_size)
 
     asyncio.run(run_pipeline(job_id, settings=settings, store=store, runner=runner))
 
@@ -92,14 +88,12 @@ def test_pipeline_uses_bounded_policy_generic_stages_and_cleans_secrets(app_env)
     assert state['stage'] == 'completed'
     assert state['message'] == 'Completed'
     assert crack_calls == [
-        ('crack', 'custom-wordlist.txt', str(settings.recovery_custom_max_candidates), str(settings.recovery_custom_timeout_seconds)),
         ('crack', 'org.txt', str(settings.recovery_mounted_max_candidates), str(settings.recovery_mounted_timeout_seconds)),
     ]
     assert all(command != 'crack-scoped-id-patterns' for command, _, _ in runner.calls)
     assert all('password' not in key for key in state)
     assert 'lab-password' not in json.dumps(state)
     assert not source.exists()
-    assert not custom_wordlist.exists()
     assert not (work_dir / 'password.secret').exists()
     assert not (work_dir / 'john.pot').exists()
     assert not (work_dir / 'hash.txt').exists()
@@ -120,7 +114,7 @@ def test_pipeline_marks_generic_failure_when_policy_cannot_recover_access(app_en
 
     runner = FakeRunner(behavior)
     job_id = uuid.uuid4().hex
-    job_dir = store.create(job_id, {"original_name": "sample.pdf", "format": "pdf", "custom_wordlist_supplied": False})
+    job_dir = store.create(job_id, {"original_name": "sample.pdf", "format": "pdf"})
     source = job_dir / 'input' / 'protected.pdf'
     source.write_bytes(b'protected')
     store.update(job_id, source_relative='input/protected.pdf', source_size=source.stat().st_size)
@@ -141,7 +135,7 @@ def test_pipeline_cancellation_marks_terminal_cancelled_and_cleans_runtime(app_e
     settings = get_settings()
     store = JobStore(settings)
     job_id = uuid.uuid4().hex
-    job_dir = store.create(job_id, {"original_name": "sample.pdf", "format": "pdf", "custom_wordlist_supplied": False})
+    job_dir = store.create(job_id, {"original_name": "sample.pdf", "format": "pdf"})
     source = job_dir / 'input' / 'protected.pdf'
     source.write_bytes(b'protected')
     store.update(job_id, source_relative='input/protected.pdf', source_size=source.stat().st_size)
@@ -172,7 +166,7 @@ def test_store_claim_pending_job_is_atomic(app_env):
     settings = get_settings()
     store = JobStore(settings)
     job_id = uuid.uuid4().hex
-    store.create(job_id, {"original_name": "sample.zip", "format": "zip", "custom_wordlist_supplied": False})
+    store.create(job_id, {"original_name": "sample.zip", "format": "zip"})
 
     first = store.claim_next_pending()
     second = store.claim_next_pending()

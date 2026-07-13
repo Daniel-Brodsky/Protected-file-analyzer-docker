@@ -41,8 +41,6 @@ class Settings:
     kali_mcp_url: str = os.getenv("PFA_KALI_MCP_URL", "http://127.0.0.1:5000").rstrip("/")
     kali_mcp_worker_python: str = os.getenv("PFA_KALI_MCP_WORKER_PYTHON", "/usr/bin/python3")
     kali_mcp_worker_path: str = os.getenv("PFA_KALI_MCP_WORKER_PATH", "/opt/protected-file-analyzer/worker/kali_worker.py")
-    max_file_bytes: int = int(os.getenv("PFA_MAX_FILE_MB", "100")) * 1024 * 1024
-    max_wordlist_bytes: int = int(os.getenv("PFA_MAX_WORDLIST_MB", "200")) * 1024 * 1024
     max_extracted_bytes: int = int(os.getenv("PFA_MAX_EXTRACTED_MB", "500")) * 1024 * 1024
     max_extracted_files: int = int(os.getenv("PFA_MAX_EXTRACTED_FILES", "5000"))
     crack_timeout_seconds: int = _bounded_int("PFA_CRACK_TIMEOUT_SECONDS", "120", maximum=150)

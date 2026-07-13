@@ -29,17 +29,17 @@ def test_xlsx_end_to_end_local_runner(app_env, tmp_path: Path):
 
     before_leftovers = {p.name for p in Path('/tmp').glob('john-home-*')}
 
+    mounted_wordlist = settings.wordlists_dir / 'fixture.txt'
+    mounted_wordlist.write_text(f'{TEST_PASSWORD}\nnot-it\n', encoding='utf-8')
+
     job_id = uuid.uuid4().hex
-    job_dir = store.create(job_id, {"original_name": "sample.xlsx", "format": "xlsx", "custom_wordlist_supplied": True})
+    job_dir = store.create(job_id, {"original_name": "sample.xlsx", "format": "xlsx"})
     source = job_dir / 'input' / 'protected.xlsx'
     source.write_bytes(OFFICE_FIXTURE.read_bytes())
-    wordlist = job_dir / 'input' / 'custom-wordlist.txt'
-    wordlist.write_text(f'{TEST_PASSWORD}\nnot-it\n', encoding='utf-8')
     store.update(
         job_id,
         source_relative='input/protected.xlsx',
         source_size=source.stat().st_size,
-        custom_wordlist_path=str(wordlist),
     )
 
     asyncio.run(run_pipeline(job_id, settings=settings, store=store, runner=runner))

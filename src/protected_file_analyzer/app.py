@@ -18,16 +18,12 @@ from .security import ensure_within, validate_extension
 from .store import JobStore
 
 
-async def save_limited(upload: UploadFile, destination: Path, limit: int) -> int:
+async def save_upload(upload: UploadFile, destination: Path) -> int:
     written = 0
     destination.parent.mkdir(parents=True, exist_ok=True)
     async with aiofiles.open(destination, "wb") as handle:
         while chunk := await upload.read(1024 * 1024):
             written += len(chunk)
-            if written > limit:
-                await handle.close()
-                destination.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="Uploaded file exceeds the configured limit")
             await handle.write(chunk)
     return written
 
@@ -91,7 +87,6 @@ def create_app(*, settings: Settings | None = None, store: JobStore | None = Non
     @app.post("/api/jobs", status_code=202)
     async def create_job(
         protected_file: UploadFile = File(...),
-        custom_wordlist: UploadFile | None = File(None),
         authorization_confirmed: bool = Form(False),
     ) -> dict:
         if not authorization_confirmed:
@@ -106,16 +101,11 @@ def create_app(*, settings: Settings | None = None, store: JobStore | None = Non
         job_dir = store.create(job_id, {
             "original_name": protected_file.filename,
             "format": file_format,
-            "custom_wordlist_supplied": bool(custom_wordlist),
         })
         source = job_dir / "input" / f"protected{ext}"
         try:
-            size = await save_limited(protected_file, source, settings.max_file_bytes)
+            size = await save_upload(protected_file, source)
             update_payload = {"source_relative": str(source.relative_to(job_dir)), "source_size": size}
-            if custom_wordlist:
-                wordlist = job_dir / "input" / "custom-wordlist.txt"
-                await save_limited(custom_wordlist, wordlist, settings.max_wordlist_bytes)
-                update_payload["custom_wordlist_path"] = str(wordlist)
             store.update(job_id, **update_payload)
         except Exception:
             store.delete(job_id)
@@ -128,7 +118,7 @@ def create_app(*, settings: Settings | None = None, store: JobStore | None = Non
             state = store.get(job_id)
         except (FileNotFoundError, ValueError):
             raise HTTPException(status_code=404, detail="Job not found")
-        for key in ("source_relative", "custom_wordlist_path"):
+        for key in ("source_relative",):
             state.pop(key, None)
         return state
 

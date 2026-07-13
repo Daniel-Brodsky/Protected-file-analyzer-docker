@@ -50,7 +50,7 @@ def test_password_never_appears_in_status_report_or_workdir(app_env):
     store = JobStore(settings)
     runner = FakeRunner()
     job_id = uuid.uuid4().hex
-    job_dir = store.create(job_id, {"original_name": "sample.zip", "format": "zip", "custom_wordlist_supplied": False})
+    job_dir = store.create(job_id, {"original_name": "sample.zip", "format": "zip"})
     source = job_dir / 'input' / 'protected.zip'
     source.write_bytes(b'protected')
     store.update(job_id, source_relative='input/protected.zip', source_size=source.stat().st_size)

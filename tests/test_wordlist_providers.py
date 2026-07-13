@@ -59,17 +59,14 @@ def test_recovery_plan_uses_recommended_default_order_and_disables_scoped_patter
     settings = get_settings()
     mounted_wordlist = settings.wordlists_dir / 'org.txt'
     mounted_wordlist.write_text('org-guess\n', encoding='utf-8')
-    custom_wordlist = settings.data_root / 'custom.txt'
-    custom_wordlist.write_text('custom\n', encoding='utf-8')
 
-    plan = build_recovery_plan(settings, custom_wordlist_path=custom_wordlist)
+    plan = build_recovery_plan(settings)
 
-    assert [attempt.source for attempt in plan] == ['custom_upload', 'mounted_wordlists', 'pin4', 'rockyou']
+    assert [attempt.source for attempt in plan] == ['mounted_wordlists', 'pin4', 'rockyou']
     assert all(attempt.source != 'scoped_org_patterns' for attempt in plan)
-    assert plan[0].max_candidates == settings.recovery_custom_max_candidates
-    assert plan[1].max_candidates == settings.recovery_mounted_max_candidates
-    assert plan[2].max_candidates == settings.recovery_pin_max_candidates
-    assert plan[3].max_candidates == settings.recovery_rockyou_max_candidates
+    assert plan[0].max_candidates == settings.recovery_mounted_max_candidates
+    assert plan[1].max_candidates == settings.recovery_pin_max_candidates
+    assert plan[2].max_candidates == settings.recovery_rockyou_max_candidates
 
 
 def test_recovery_plan_enables_scoped_patterns_only_when_explicitly_configured(monkeypatch, tmp_path: Path):

@@ -22,7 +22,6 @@ async def run_pipeline(job_id: str, *, settings: Settings | None = None, store: 
     job_dir = store.job_dir(job_id)
     cancel_path = store.cancel_path(job_id)
     source = job_dir / state["source_relative"]
-    custom_wordlist = Path(state["custom_wordlist_path"]) if state.get("custom_wordlist_path") else None
     work = job_dir / "work"
     output = job_dir / "output"
     hash_file = work / "hash.txt"
@@ -74,7 +73,7 @@ async def run_pipeline(job_id: str, *, settings: Settings | None = None, store: 
             )
             return
 
-        plan = build_recovery_plan(settings, custom_wordlist_path=custom_wordlist)
+        plan = build_recovery_plan(settings)
         cracked = None
         timed_out = False
         if plan:
@@ -187,8 +186,6 @@ async def run_pipeline(job_id: str, *, settings: Settings | None = None, store: 
         raise
     finally:
         cleanup_paths = [secret_file, pot_file, hash_file, source]
-        if custom_wordlist is not None:
-            cleanup_paths.append(custom_wordlist)
         for path in cleanup_paths:
             try:
                 path.unlink(missing_ok=True)

@@ -1,5 +1,4 @@
 const form = document.querySelector('#job-form');
-const customWordlist = document.querySelector('#custom-wordlist');
 const submit = document.querySelector('#submit');
 const cancelJobButton = document.querySelector('#cancel-job');
 const progressCard = document.querySelector('#progress-card');
@@ -46,14 +45,13 @@ const knownUiMessages = {
   'Static analysis': 'מריץ ניתוח סטטי',
   Completed: 'הניתוח הושלם',
   Cancelled: 'הניתוח בוטל',
-  'Unable to recover access within configured limits': 'לא ניתן היה לשחזר גישה במסגרת המגבלות שהוגדרו.',
-  'Unable to recover access with configured policy': 'לא ניתן היה לשחזר גישה באמצעות המדיניות שהוגדרה.',
+  'Unable to recover access within configured limits': 'המערכת לא הצליחה למצוא סיסמה מתאימה לקובץ במסגרת המגבלות שהוגדרו.',
+  'Unable to recover access with configured policy': 'המערכת לא הצליחה למצוא סיסמה מתאימה לקובץ באמצעות מקורות השחזור הזמינים.',
   Cancelling: 'מבטל את הניתוח…'
 };
 
 const knownUiErrors = {
   'Authorization confirmation is required': 'יש לאשר הרשאה לפני תחילת הניתוח.',
-  'Uploaded file exceeds the configured limit': 'הקובץ שהועלה חורג מהמגבלה שהוגדרה.',
   'Job not found': 'העבודה לא נמצאה.',
   'Report is not ready': 'הדוח עדיין לא מוכן.',
   'Report not found': 'הדוח לא נמצא.',
@@ -103,6 +101,19 @@ function translateUiMessage(message) {
 
 function translateUiError(message) {
   return knownUiErrors[message] || message || 'אירעה שגיאה.';
+}
+
+async function readResponsePayload(response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      return await response.json();
+    } catch {
+      return {};
+    }
+  }
+  const text = await response.text();
+  return { detail: text || response.statusText || 'Unexpected response from server' };
 }
 
 function currentStageId(stage, status) {
@@ -163,7 +174,7 @@ function renderSummaryGrid(summary) {
   const summaryItems = [
     { label: 'הכרעה', value: displayVerdict(summary.verdict), technical: false },
     { label: 'קבצים', value: summary.file_count, technical: true },
-    { label: 'סך הכול בתים', value: summary.total_bytes, technical: true },
+    { label: 'Bytes', value: summary.total_bytes, technical: true },
     { label: 'אינדיקטורים', value: summary.indicator_count, technical: true },
     { label: 'פגיעות YARA', value: summary.yara_hits ? 'כן' : 'לא', technical: false },
     { label: 'אינדיקטורי מאקרו', value: summary.macro_indicators ? 'כן' : 'לא', technical: false }
@@ -327,7 +338,7 @@ form.addEventListener('submit', async event => {
   const body = new FormData(form);
   try {
     const response = await fetch('/api/jobs', { method: 'POST', body });
-    const data = await response.json();
+    const data = await readResponsePayload(response);
     if (!response.ok) throw new Error(translateUiError(data.detail || 'Job creation failed'));
     currentJob = data.job_id;
     progressCard.classList.remove('hidden');
@@ -346,7 +357,7 @@ cancelJobButton.addEventListener('click', async () => {
   cancelJobButton.disabled = true;
   try {
     const response = await fetch(`/api/jobs/${currentJob}/cancel`, { method: 'POST' });
-    const payload = await response.json();
+    const payload = await readResponsePayload(response);
     if (!response.ok) throw new Error(translateUiError(payload.detail || 'Cancellation failed'));
     statusMessage.textContent = translateUiMessage(payload.message || 'Cancelling');
   } catch (error) {
@@ -358,7 +369,10 @@ cancelJobButton.addEventListener('click', async () => {
 async function pollJob() {
   clearTimeout(pollTimer);
   const response = await fetch(`/api/jobs/${currentJob}`);
-  const state = await response.json();
+  const state = await readResponsePayload(response);
+  if (!response.ok) {
+    throw new Error(translateUiError(state.detail || 'Job not found'));
+  }
   updateProgress(state.progress || 0);
   applyStatusState(state);
   updateStageProgress(state);
@@ -377,7 +391,10 @@ async function pollJob() {
 
 async function loadReport() {
   const response = await fetch(`/api/jobs/${currentJob}/report`);
-  const report = await response.json();
+  const report = await readResponsePayload(response);
+  if (!response.ok) {
+    throw new Error(translateUiError(report.detail || 'Report is not ready'));
+  }
   renderSummaryGrid(report.summary || {});
   renderToolCards(report);
   reportJson.textContent = JSON.stringify(report, null, 2);
@@ -390,7 +407,7 @@ document.querySelector('#delete-job').addEventListener('click', async () => {
   if (!currentJob) return;
   const response = await fetch(`/api/jobs/${currentJob}`, { method: 'DELETE' });
   if (!response.ok) {
-    const payload = await response.json();
+    const payload = await readResponsePayload(response);
     alert(translateUiError(payload.detail || 'Delete failed'));
     return;
   }
@@ -401,14 +418,13 @@ document.querySelector('#delete-job').addEventListener('click', async () => {
   clearChildren(toolCards);
   clearChildren(summaryGrid);
   form.reset();
-  customWordlist.value = '';
   updateProgress(0);
   updateStageProgress({ progress: 0, stage: 'preparing', status: 'queued' });
   setTimeline('preparing', 'queued');
   setRunningControls(false);
 });
 
-window.__uiVersion = '20260713c';
+window.__uiVersion = '20260713e';
 window.__uiDebug = {
   updateProgress,
   updateStageProgress,

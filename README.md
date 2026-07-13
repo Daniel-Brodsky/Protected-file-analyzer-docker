@@ -225,8 +225,6 @@ All supported configuration lives in `.env.example`.
 - `PFA_KALI_MCP_URL`
 - `PFA_KALI_MCP_WORKER_PYTHON`
 - `PFA_KALI_MCP_WORKER_PATH`
-- `PFA_MAX_FILE_MB`
-- `PFA_MAX_WORDLIST_MB`
 - `PFA_MAX_EXTRACTED_MB`
 - `PFA_MAX_EXTRACTED_FILES`
 - `PFA_CRACK_TIMEOUT_SECONDS`
@@ -271,17 +269,14 @@ Look for:
 
 ## Example API workflow
 
-Create a temporary custom wordlist and submit an authorized job:
+Submit an authorized job:
 
 ```bash
 cd protected-file-analyzer
-mkdir -p ./tmp
-printf '%s\n' '<TEST_PASSWORD>' 'not-it' > ./tmp/wordlist.txt
 
 curl -X POST http://127.0.0.1:8088/api/jobs \
   -F 'authorization_confirmed=true' \
-  -F 'protected_file=@./sample.pdf;type=application/pdf' \
-  -F 'custom_wordlist=@./tmp/wordlist.txt;type=text/plain'
+  -F 'protected_file=@./sample.pdf;type=application/pdf'
 ```
 
 Poll status:
@@ -298,17 +293,16 @@ curl -OJ http://127.0.0.1:8088/api/jobs/<JOB_ID>/artifact
 curl -X DELETE http://127.0.0.1:8088/api/jobs/<JOB_ID>
 ```
 
-## Recovery providers and custom wordlist usage
+## Recovery providers
 
 The analyst-facing workflow is always **Analyze file**. The service chooses the fixed recovery policy internally and does not disclose which strategy matched.
 
 The built-in provider order is:
 
-1. uploaded custom wordlist (when supplied)
-2. mounted organization wordlists under `./runtime/wordlists/`
-3. internal 4-digit PIN candidate sweep
-4. internal Israeli-ID-pattern candidate sweep
-5. optional cached `rockyou.txt` when available
+1. mounted organization wordlists under `./runtime/wordlists/`
+2. internal 4-digit PIN candidate sweep
+3. internal Israeli-ID-pattern candidate sweep
+4. optional cached `rockyou.txt` when available
 
 Notes:
 

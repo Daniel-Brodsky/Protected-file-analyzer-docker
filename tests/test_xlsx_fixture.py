@@ -18,7 +18,7 @@ def test_blank_wordlist_candidates_are_skipped_without_invoking_john(tmp_path: P
     wordlist = tmp_path / 'blank.txt'
     wordlist.write_text('\n\n   \n', encoding='utf-8')
 
-    cracked = crack(hash_file, wordlist, pot_file, workdir, timeout=30, max_candidates=100, cancel_path=None, provider_name='custom_upload')
+    cracked = crack(hash_file, wordlist, pot_file, workdir, timeout=30, max_candidates=100, cancel_path=None, provider_name='mounted_wordlists')
 
     assert cracked == {"ok": True, "found": False, "timed_out": False, "cancelled": False}
 
@@ -41,7 +41,7 @@ def test_office_fixture_extracts_cracks_and_decrypts(tmp_path: Path):
     assert extracted['ok'] is True
     assert '$office$' in hash_file.read_text(encoding='utf-8')
 
-    cracked = crack(hash_file, wordlist, pot_file, workdir, timeout=30, max_candidates=100, cancel_path=None, provider_name='custom_upload')
+    cracked = crack(hash_file, wordlist, pot_file, workdir, timeout=30, max_candidates=100, cancel_path=None, provider_name='mounted_wordlists')
     assert cracked['ok'] is True
     assert cracked['found'] is True
 
